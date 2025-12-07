@@ -4,8 +4,16 @@ import json
 import base64
 import urllib.parse
 import pandas as pd
-import os
 from datetime import datetime
+import os
+
+# ==============================================================================
+# [설정] 여기에 본인의 사이트 주소를 한 번만 적어주세요! (맨 뒤에 / 제외)
+# 예: https://ahp-platform.streamlit.app
+# 로컬 테스트 중이라면: http://localhost:8501
+# ==============================================================================
+MY_DOMAIN = "https://ahp-platform-bbee45epwqjjy2zfpccz7p.streamlit.app/%EC%84%A4%EB%AC%B8_%EC%A7%84%ED%96%89" 
+# ==============================================================================
 
 st.set_page_config(page_title="설문 진행", page_icon="📝", layout="wide")
 
@@ -31,7 +39,7 @@ else:
         survey_data = None
 
 # ------------------------------------------------------------------
-# [MODE A] 연구자: 설문 배포 화면
+# [MODE A] 연구자: 링크 생성 (주소 수정 불필요 & 카톡 버튼 추가)
 # ------------------------------------------------------------------
 if not is_respondent:
     st.title("📢 설문 배포 센터")
@@ -40,12 +48,10 @@ if not is_respondent:
         st.warning("⚠️ 확정된 구조가 없습니다. [1번 페이지]에서 구조를 먼저 확정하세요.")
         st.stop()
 
-    st.markdown(f"**목표:** {survey_data['goal']}")
+    st.success(f"**목표:** {survey_data['goal']}")
     
-    with st.expander("⚙️ 배포 링크 설정", expanded=True):
-        base_url = st.text_input("내 사이트 주소", value="https://ahp-platform.streamlit.app/설문_진행")
-
-    if st.button("🔗 공유 링크 생성하기", type="primary"):
+    # 지저분한 주소 설정창은 숨기고, 버튼 하나로 통합했습니다.
+    if st.button("🔗 공유 링크 생성하기", type="primary", use_container_width=True):
         full_structure = {
             "goal": survey_data['goal'],
             "main_criteria": survey_data['main_criteria'],
@@ -55,38 +61,93 @@ if not is_respondent:
         b64_data = base64.b64encode(json_str.encode("utf-8")).decode("utf-8")
         url_safe = urllib.parse.quote(b64_data)
         
-        final_url = f"{base_url}?data={url_safe}"
+        # 설정된 도메인 사용 (자동화)
+        final_url = f"{MY_DOMAIN}/설문_진행?data={url_safe}"
         
-        st.success("링크 생성 완료!")
-        st.code(final_url, language="text")
+        st.markdown("### 👇 아래 버튼을 눌러 공유하세요")
         
-        col1, col2 = st.columns(2)
-        with col1:
-            subject = f"[설문 요청] {survey_data['goal']}"
-            body = f"링크: {final_url}"
-            mailto = f"mailto:?subject={urllib.parse.quote(subject)}&body={urllib.parse.quote(body)}"
-            st.link_button("📧 이메일 보내기", mailto, use_container_width=True)
-        with col2:
-            st.info("💬 카카오톡은 링크를 복사해서 공유하세요.")
+        # [핵심] 카카오톡 스타일의 대형 복사 버튼 (HTML/JS)
+        components.html(f"""
+        <style>
+            body {{ margin: 0; padding: 0; font-family: sans-serif; }}
+            .kakao-btn {{
+                background-color: #FEE500;
+                color: #000000;
+                border: none;
+                border-radius: 12px;
+                padding: 15px 0;
+                width: 100%;
+                font-size: 16px;
+                font-weight: bold;
+                cursor: pointer;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                gap: 10px;
+            }}
+            .kakao-btn:hover {{ background-color: #fdd835; }}
+            .email-btn {{
+                background-color: #f1f3f5;
+                color: #495057;
+                border: 1px solid #dee2e6;
+                border-radius: 12px;
+                padding: 12px 0;
+                width: 100%;
+                font-size: 14px;
+                font-weight: bold;
+                cursor: pointer;
+                margin-top: 8px;
+            }}
+        </style>
+        
+        <script>
+            function copyLink() {{
+                const url = '{final_url}';
+                navigator.clipboard.writeText(url).then(() => {{
+                    document.getElementById('msg').innerText = "✅ 복사되었습니다! 카톡방에 붙여넣으세요.";
+                    setTimeout(() => {{ document.getElementById('msg').innerText = ""; }}, 3000);
+                }}).catch(err => {{
+                    prompt("이 링크를 복사하세요:", url);
+                }});
+            }}
+            
+            function sendEmail() {{
+                const subject = encodeURIComponent("[설문 요청] {survey_data['goal']}");
+                const body = encodeURIComponent("링크: " + '{final_url}');
+                window.location.href = "mailto:?subject=" + subject + "&body=" + body;
+            }}
+        </script>
+
+        <button class="kakao-btn" onclick="copyLink()">
+            💬 카카오톡 링크 복사하기
+        </button>
+        <div id="msg" style="text-align:center; color:green; font-size:12px; margin-top:5px; height:20px;"></div>
+        
+        <button class="email-btn" onclick="sendEmail()">
+            📧 이메일 보내기
+        </button>
+        """, height=130)
+        
+        # 혹시 모를 수동 복사용
+        with st.expander("원문 링크 보기"):
+            st.code(final_url)
 
 # ------------------------------------------------------------------
-# [MODE B] 응답자: 동료의 로직 (순위 선정 + CR 체크) 적용
+# [MODE B] 응답자: 설문 진행 (1차 비교 삭제 & 동료 로직 적용)
 # ------------------------------------------------------------------
 else:
     st.title(f"📝 {survey_data['goal']}")
     
-    # 데이터를 JS로 넘기기 위해 구조화
-    # Task List 생성: [ {name: "1차 기준", items: [...]}, {name: "비용 하위", items: [...]}, ... ]
+    # [수정됨] 1차 기준은 건너뛰고, 세부 항목만 Tasks에 추가
     tasks = []
     
-    # 1. 메인 기준
-    if len(survey_data['main_criteria']) > 1:
-        tasks.append({"name": "1차 기준 (Main Criteria)", "items": survey_data['main_criteria']})
+    # 1차 기준 비교 코드 삭제됨 (주석 처리 또는 제거)
+    # if len(survey_data['main_criteria']) > 1: ... (삭제)
     
-    # 2. 세부 항목
+    # 2. 세부 항목만 추가
     for cat, items in survey_data['sub_criteria'].items():
         if len(items) > 1:
-            tasks.append({"name": f"[{cat}] 세부 항목", "items": items})
+            tasks.append({"name": f"📂 [{cat}] 평가", "items": items})
             
     js_tasks = json.dumps(tasks, ensure_ascii=False)
 
@@ -101,20 +162,19 @@ else:
         .active {{ display: block; }}
         @keyframes fadeIn {{ from {{ opacity: 0; }} to {{ opacity: 1; }} }}
         
-        .container {{ max-width: 700px; margin: 0 auto; background: white; padding: 30px; border-radius: 15px; box-shadow: 0 5px 20px rgba(0,0,0,0.08); }}
+        .container {{ max-width: 700px; margin: 0 auto; background: white; padding: 30px; border-radius: 15px; box-shadow: 0 5px 20px rgba(0,0,0,0.08); border: 1px solid #eee; }}
         h2 {{ color: #333; border-bottom: 2px solid #228be6; padding-bottom: 10px; }}
         
         .ranking-item {{ display: flex; justify-content: space-between; margin-bottom: 10px; padding: 10px; background: #f8f9fa; border-radius: 8px; align-items: center; }}
         .rank-select {{ padding: 5px; border-radius: 5px; }}
         
-        .card {{ background: #f1f3f5; padding: 20px; border-radius: 12px; text-align: center; margin-bottom: 20px; }}
+        .card {{ background: #f8f9fa; padding: 20px; border-radius: 12px; text-align: center; margin-bottom: 20px; }}
         .vs-row {{ display: flex; justify-content: space-between; font-size: 1.2em; font-weight: bold; margin-bottom: 15px; }}
         input[type=range] {{ width: 100%; margin: 20px 0; }}
         
         .btn {{ width: 100%; padding: 15px; background: #228be6; color: white; border: none; border-radius: 8px; font-size: 1.1em; cursor: pointer; }}
         .btn:disabled {{ background: #adb5bd; }}
         
-        /* 모달 (CR 체크) */
         .modal {{ display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); justify-content: center; align-items: center; }}
         .modal-box {{ background: white; padding: 30px; border-radius: 15px; width: 90%; max-width: 400px; text-align: center; }}
         .logic-text {{ color: #228be6; font-weight: bold; }}
@@ -174,28 +234,18 @@ else:
     <script>
         const tasks = {js_tasks};
         let currentTaskIdx = 0;
-        
-        // 현재 태스크 변수들
-        let items = [];
-        let pairs = [];
-        let matrix = [];
-        let pairIdx = 0;
-        let initialRanks = [];
-        let pendingVal = 0;
-        
-        let allAnswers = {{}}; // 최종 결과 저장소
+        let items = [], pairs = [], matrix = [], pairIdx = 0, initialRanks = [], pendingVal = 0;
+        let allAnswers = {{}};
 
         function loadTask() {{
             if (currentTaskIdx >= tasks.length) {{
                 finishAll();
                 return;
             }}
-            
             const task = tasks[currentTaskIdx];
             items = task.items;
             document.getElementById('task-title').innerText = task.name;
             
-            // 순위 UI 생성
             const listDiv = document.getElementById('ranking-list');
             listDiv.innerHTML = "";
             let options = '<option value="" selected disabled>선택</option>';
@@ -208,22 +258,16 @@ else:
                         <select id="rank-${{idx}}" class="rank-select">${{options}}</select>
                     </div>`;
             }});
-            
             showStep('step-ranking');
         }}
 
         function startCompare() {{
-            // 순위 저장 및 검증
             initialRanks = [];
-            let checks = [];
             for(let i=0; i<items.length; i++) {{
                 const val = document.getElementById('rank-'+i).value;
                 if(!val) {{ alert("순위를 모두 선택해주세요."); return; }}
                 initialRanks.push(val);
-                checks.push(val);
             }}
-            
-            // 행렬 및 쌍 초기화
             const n = items.length;
             matrix = Array.from({{length: n}}, () => Array(n).fill(0));
             for(let i=0; i<n; i++) matrix[i][i] = 1;
@@ -234,7 +278,6 @@ else:
                     pairs.push({{ r: i, c: j, a: items[i], b: items[j] }});
                 }}
             }}
-            
             pairIdx = 0;
             showStep('step-compare');
             renderPair();
@@ -242,20 +285,16 @@ else:
 
         function renderPair() {{
             if (pairIdx >= pairs.length) {{
-                // 현재 태스크 완료 -> 다음 태스크로
                 currentTaskIdx++;
                 loadTask();
                 return;
             }}
-            
             const p = pairs[pairIdx];
             document.getElementById('progress').innerText = `${{pairIdx+1}} / ${{pairs.length}}`;
             document.getElementById('item-a').innerText = p.a;
             document.getElementById('item-b').innerText = p.b;
-            document.getElementById('rank-hint-a').innerText = `예상 ${{-initialRanks[p.r]}}위`; // 마이너스는 텍스트용 임시
             document.getElementById('rank-hint-a').innerText = `(예상 ${{initialRanks[p.r]}}위)`;
             document.getElementById('rank-hint-b').innerText = `(예상 ${{initialRanks[p.c]}}위)`;
-            
             document.getElementById('slider').value = 0;
             updateLabel();
         }}
@@ -264,7 +303,6 @@ else:
             const val = parseInt(document.getElementById('slider').value);
             const disp = document.getElementById('val-display');
             const p = pairs[pairIdx];
-            
             if(val == 0) {{ disp.innerText = "동등함 (1:1)"; disp.style.color = "#555"; }}
             else if(val < 0) {{ 
                 disp.innerText = p.a + " " + (Math.abs(val)+1) + "배 중요"; 
@@ -275,11 +313,9 @@ else:
             }}
         }}
 
-        // [동료의 CR 로직]
         function checkConsistency() {{
             const sliderVal = parseInt(document.getElementById('slider').value);
             let weight = sliderVal === 0 ? 1 : (sliderVal < 0 ? Math.abs(sliderVal) + 1 : 1 / (sliderVal + 1));
-            
             const p = pairs[pairIdx];
             const n = items.length;
             let conflict = false;
@@ -293,7 +329,6 @@ else:
                     if(ratio > 3.0) {{ conflict = true; logicalW = predicted; break; }}
                 }}
             }}
-
             if(conflict) {{
                 showModal(logicalW, weight);
                 pendingVal = weight;
@@ -337,7 +372,7 @@ else:
             document.getElementById(id).classList.add('active');
         }}
 
-        loadTask(); // 시작
+        loadTask();
     </script>
     </body>
     </html>
@@ -352,13 +387,10 @@ else:
         if st.form_submit_button("제출"):
             try:
                 json.loads(code)
-                # 데이터 저장 로직: Goal을 기준으로 파일명 생성
+                # 데이터 저장: Goal 기준으로 폴더/파일 관리
                 goal_filename = survey_data['goal'].replace(" ", "_")
-                
-                # 폴더가 없으면 생성
                 if not os.path.exists("survey_data"):
                     os.makedirs("survey_data")
-                
                 file_path = f"survey_data/{goal_filename}.csv"
                 
                 save_data = {
@@ -367,11 +399,10 @@ else:
                     "Raw_Data": code
                 }
                 df = pd.DataFrame([save_data])
-                
                 try: old_df = pd.read_csv(file_path)
                 except: old_df = pd.DataFrame()
                 
                 pd.concat([old_df, df], ignore_index=True).to_csv(file_path, index=False)
-                st.success(f"✅ '{survey_data['goal']}' 프로젝트 데이터 센터에 저장되었습니다!")
+                st.success(f"✅ '{survey_data['goal']}' 프로젝트에 저장되었습니다!")
             except Exception as e:
                 st.error(f"오류 발생: {e}")
