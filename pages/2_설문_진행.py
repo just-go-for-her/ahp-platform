@@ -12,7 +12,7 @@ import os
 # 예: https://ahp-platform.streamlit.app
 # 로컬 테스트 중이라면: http://localhost:8501
 # ==============================================================================
-MY_DOMAIN = "https://ahp-platform-bbee45epwqjjy2zfpccz7p.streamlit.app/%EC%84%A4%EB%AC%B8_%EC%A7%84%ED%96%89" 
+MY_DOMAIN = "https://ahp-platform-bbee45epwqjjy2zfpccz7p.streamlit.app/" 
 # ==============================================================================
 
 st.set_page_config(page_title="설문 진행", page_icon="📝", layout="wide")
