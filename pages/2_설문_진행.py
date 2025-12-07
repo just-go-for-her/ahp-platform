@@ -30,7 +30,7 @@ else:
         survey_data = None
 
 # ------------------------------------------------------------------
-# [MODE A] 연구자: 설문 배포 화면 (이메일/카톡 공유)
+# [MODE A] 연구자: 설문 배포 화면
 # ------------------------------------------------------------------
 if not is_respondent:
     st.title("📢 설문 배포 센터")
@@ -42,13 +42,11 @@ if not is_respondent:
     st.markdown(f"**목표:** {survey_data['goal']}")
     st.success("1번 페이지에서 구조를 불러왔습니다. 배포용 링크를 생성합니다.")
 
-    # URL Access Denied 방지용 입력
     with st.expander("⚙️ 배포 링크 설정 (필수)", expanded=True):
         st.caption("현재 브라우저 주소창의 주소를 복사해서 아래에 붙여넣으세요.")
         base_url = st.text_input("내 사이트 주소", value="https://ahp-platform.streamlit.app/설문_진행")
 
     if st.button("🔗 공유 링크 생성하기", type="primary"):
-        # 데이터 패키징
         full_structure = {
             "goal": survey_data['goal'],
             "main_criteria": survey_data['main_criteria'],
@@ -63,31 +61,29 @@ if not is_respondent:
         st.success("링크 생성 완료!")
         st.code(final_url, language="text")
         
-        # [요청하신 기능] 이메일 & 카톡 공유 버튼
         st.markdown("### 📤 공유하기")
         col1, col2 = st.columns(2)
         
         with col1:
-            # 이메일 버튼 (mailto)
             subject = f"[설문 요청] {survey_data['goal']} 전문가 의견 조사"
             body = f"안녕하세요.\n다음 링크를 통해 AHP 설문에 참여 부탁드립니다.\n\n링크: {final_url}"
             mailto_link = f"mailto:?subject={urllib.parse.quote(subject)}&body={urllib.parse.quote(body)}"
             st.link_button("📧 이메일로 보내기", mailto_link, use_container_width=True)
             
         with col2:
-            # 카카오톡 (링크 복사 안내)
             st.info("💬 **카카오톡 공유:** 위 링크를 복사해서 카톡방에 붙여넣으세요.")
 
 # ------------------------------------------------------------------
-# [MODE B] 응답자: 설문 진행 (동료의 일관성 로직 이식)
+# [MODE B] 응답자: 설문 진행 (오류 수정됨)
 # ------------------------------------------------------------------
 else:
     st.title(f"📝 {survey_data['goal']}")
-    st.caption("동료가 개발한 **실시간 논리 검증 시스템**이 적용된 설문입니다.")
+    st.caption("각 부문별 세부 항목의 중요도를 비교해주세요.")
 
+    # Python 데이터를 JS로 넘기기
     js_sub_criteria = json.dumps(survey_data['sub_criteria'], ensure_ascii=False)
 
-    # [친구의 핵심 로직 + 다단계 계층 구조 통합]
+    # HTML/JS 코드 (f-string 사용 시 중괄호 {{ }} 주의)
     html_code = f"""
     <!DOCTYPE html>
     <html lang="ko">
@@ -106,9 +102,8 @@ else:
         .vs-row {{ display: flex; justify-content: space-between; align-items: center; margin-bottom: 30px; font-size: 1.3em; font-weight: bold; }}
         input[type=range] {{ width: 100%; margin: 20px 0; cursor: pointer; }}
         .btn {{ width: 100%; padding: 15px; background: #228be6; color: white; border: none; border-radius: 8px; font-size: 1.1em; cursor: pointer; margin-top: 20px; }}
-        .btn:disabled {{ background: #adb5bd; }}
         
-        /* 모달 스타일 (일관성 오류 알림) */
+        /* 모달 스타일 */
         .modal {{ display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.6); justify-content: center; align-items: center; }}
         .modal-content {{ background: white; padding: 30px; border-radius: 15px; width: 90%; max-width: 400px; text-align: center; }}
         .logic-val {{ color: #1c7ed6; font-weight: bold; }}
@@ -119,8 +114,7 @@ else:
 
     <div id="survey-container" style="max-width: 600px; margin: 0 auto;">
         <div id="header-area"></div>
-        <div id="card-area" class="card">
-            </div>
+        <div id="card-area" class="card"></div>
     </div>
 
     <div id="result-area" style="display:none; text-align:center; margin-top:50px;">
@@ -147,15 +141,14 @@ else:
     <script>
         const subCriteria = {js_sub_criteria};
         
-        // 1. 전체 비교 쌍 생성 (카테고리별로 그룹화)
-        let surveyGroups = []; // [ {cat: "비용", pairs: [], matrix: []}, ... ]
+        // 1. 전체 비교 쌍 생성
+        let surveyGroups = [];
         
         for (const [cat, items] of Object.entries(subCriteria)) {{
             if (items.length < 2) continue;
             
             let pairs = [];
             let n = items.length;
-            // 행렬 초기화 (일관성 체크용)
             let matrix = Array.from({{length: n}}, () => Array(n).fill(0));
             for(let i=0; i<n; i++) matrix[i][i] = 1;
             
@@ -171,7 +164,6 @@ else:
         let groupIdx = 0;
         let pairIdx = 0;
         let pendingVal = 0;
-        let pendingPair = null;
         let answers = {{}};
 
         function render() {{
@@ -181,13 +173,9 @@ else:
             }}
 
             const group = surveyGroups[groupIdx];
-            
-            // 헤더 표시
             document.getElementById('header-area').innerHTML = `<div class="category-header">📂 ${{group.cat}} 부문 (${{pairIdx + 1}} / ${{group.pairs.length}})</div>`;
             
             const p = group.pairs[pairIdx];
-            
-            // 카드 내용 표시
             document.getElementById('card-area').innerHTML = `
                 <div class="vs-row">
                     <span style="color:#228be6;">${{p.nameA}}</span>
@@ -222,10 +210,8 @@ else:
             }}
         }}
 
-        // [핵심] 동료의 일관성 체크 로직
         function checkConsistency() {{
             const sliderVal = parseInt(document.getElementById('slider').value);
-            // AHP 가중치 변환 (1~9 scale)
             let weight = sliderVal === 0 ? 1 : (sliderVal < 0 ? Math.abs(sliderVal) + 1 : 1 / (sliderVal + 1));
             
             const group = surveyGroups[groupIdx];
@@ -233,16 +219,13 @@ else:
             const n = group.items.length;
             const matrix = group.matrix;
 
-            // Transitivity Check (A>B, B>C => A>C ?)
             let conflict = false;
             let logicalW = 0;
 
             for (let k = 0; k < n; k++) {{
                 if (k === p.r || k === p.c) continue;
-                // A->K 그리고 K->B 관계가 이미 있다면?
                 if (matrix[p.r][k] !== 0 && matrix[k][p.c] !== 0) {{
                     const predicted = matrix[p.r][k] * matrix[k][p.c];
-                    // 예측값과 현재 입력값의 괴리가 크면 (3배 이상) 경고
                     const ratio = predicted > weight ? predicted / weight : weight / predicted;
                     if (ratio > 3.0) {{ 
                         conflict = true; 
@@ -253,14 +236,14 @@ else:
             }}
 
             if (conflict) {{
-                showModal(logicalW, weight, p);
+                showModal(logicalW, weight);
                 pendingVal = weight;
             }} else {{
                 saveAndNext(weight);
             }}
         }}
 
-        function showModal(logicalW, userW, p) {{
+        function showModal(logicalW, userW) {{
             const format = (w) => w >= 1 ? "왼쪽으로 " + w.toFixed(1) + "배" : "오른쪽으로 " + (1/w).toFixed(1) + "배";
             document.getElementById('rec-val').innerText = format(logicalW);
             document.getElementById('my-val').innerText = format(userW);
@@ -276,19 +259,15 @@ else:
             const group = surveyGroups[groupIdx];
             const p = group.pairs[pairIdx];
             
-            // 행렬 업데이트
             group.matrix[p.r][p.c] = weight;
             group.matrix[p.c][p.r] = 1 / weight;
             
-            // 결과 저장
             const key = `[${{group.cat}}]${{p.nameA}}_vs_${{p.nameB}}`;
-            // 슬라이더 값(-9~9)으로 변환해서 저장 (나중에 분석하기 편하게)
             let sliderVal = document.getElementById('slider').value; 
             answers[key] = sliderVal;
 
             pairIdx++;
             if (pairIdx >= group.pairs.length) {{
-                // 현재 카테고리 완료 -> 다음 카테고리로
                 groupIdx++;
                 pairIdx = 0;
             }}
