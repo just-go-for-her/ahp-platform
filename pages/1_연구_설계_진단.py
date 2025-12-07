@@ -195,3 +195,23 @@ if goal:
                     elif len(c) == 1: msg = "⚠️ 항목 1개 (비교 불가)"
                     res = analyze_ahp_logic(goal, p, c)
                     render_result_ui(f"세부항목: {p}", res, msg)
+
+# ... (기존 AI 진단 로직 끝부분) ...
+
+st.divider()
+st.subheader("5. 설문지 배포 (Survey Generation)")
+
+# 데이터 패키징 (목표 + 1차 기준 + 2차 기준)
+survey_package = {
+    "goal": goal,
+    "criteria": main_criteria,
+    "sub_criteria": structure_data
+}
+
+# 설문 생성 버튼
+if st.button("📢 이 구조로 설문지 생성 및 링크 만들기", type="primary"):
+    # 1. 데이터를 세션에 저장 (Page 2로 넘기기 위해)
+    st.session_state['survey_design'] = survey_package
+    
+    st.success("설문 구조가 확정되었습니다! 왼쪽 메뉴의 [2_설문_진행] 페이지로 이동하세요.")
+    st.balloons()
