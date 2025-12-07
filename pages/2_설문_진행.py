@@ -8,14 +8,18 @@ from datetime import datetime
 import os
 
 # ==============================================================================
-# [필독] 주소 설정 (본인의 실제 배포 주소로 변경)
+# [필독] 주소 설정
 # ==============================================================================
+# 실제 배포된 주소 전체를 넣으세요 (맨 뒤 /설문_진행 포함 여부 확인)
+# 주소창의 주소를 그대로 복사해서 넣는 것이 가장 안전합니다.
+# 예: "https://my-app.streamlit.app/설문_진행" (페이지 명까지 포함 추천)
+# 만약 메인 도메인만 넣는다면 아래 코드에서 "/설문_진행"을 붙여줘야 함.
+# 여기서는 사용자가 주소창 전체를 복사했다고 가정하고 그대로 씁니다.
 FULL_URL = "https://ahp-platform-bbee45epwqjjy2zfpccz7p.streamlit.app/%EC%84%A4%EB%AC%B8_%EC%A7%84%ED%96%89" 
 # ==============================================================================
 
 st.set_page_config(page_title="설문 진행", page_icon="📝", layout="wide")
 
-# 1. URL 데이터 처리
 query_params = st.query_params
 encoded_data = query_params.get("data", None)
 survey_data = None
@@ -37,10 +41,10 @@ else:
         survey_data = None
 
 # ------------------------------------------------------------------
-# [MODE A] 연구자: 링크 생성
+# [MODE A] 연구자: 비밀번호 설정 추가
 # ------------------------------------------------------------------
 if not is_respondent:
-    st.title("📢 설문 배포 센터")
+    st.title("📢 설문 배포 센터 (Private Mode)")
     
     if not survey_data:
         st.warning("⚠️ 확정된 구조가 없습니다. [1번 페이지]에서 구조를 먼저 확정하세요.")
@@ -48,70 +52,82 @@ if not is_respondent:
 
     st.success(f"**목표:** {survey_data['goal']}")
     
-    if "여기에" in FULL_URL:
-        st.error("🚨 코드 맨 윗줄의 'FULL_URL'을 설정해주세요!")
-        st.stop()
+    # [NEW] 비밀번호(Key) 설정 기능 추가
+    with st.container(border=True):
+        st.subheader("🔐 보안 설정")
+        project_key = st.text_input(
+            "나만의 프로젝트 비밀번호(Key)를 입력하세요.", 
+            placeholder="예: team_a, my_secret_123",
+            help="이 비밀번호를 입력해야 나중에 데이터 센터에서 결과를 볼 수 있습니다."
+        )
 
     if st.button("🔗 공유 링크 생성하기", type="primary", use_container_width=True):
-        full_structure = {
-            "goal": survey_data['goal'],
-            "main_criteria": survey_data['main_criteria'],
-            "sub_criteria": survey_data['sub_criteria']
-        }
-        json_str = json.dumps(full_structure, ensure_ascii=False)
-        b64_data = base64.b64encode(json_str.encode("utf-8")).decode("utf-8")
-        url_safe = urllib.parse.quote(b64_data)
-        
-        final_url = f"{FULL_URL}?data={url_safe}"
-        
-        st.markdown("### 👇 아래 버튼을 눌러 공유하세요")
-        
-        components.html(f"""
-        <style>
-            body {{ margin: 0; padding: 0; font-family: sans-serif; }}
-            .kakao-btn {{
-                background-color: #FEE500; color: #000000; border: none; border-radius: 12px;
-                padding: 15px 0; width: 100%; font-size: 16px; font-weight: bold; cursor: pointer;
-            }}
-            .email-btn {{
-                background-color: #f1f3f5; color: #495057; border: 1px solid #dee2e6;
-                border-radius: 12px; padding: 12px 0; width: 100%; font-size: 14px;
-                font-weight: bold; cursor: pointer; margin-top: 8px;
-            }}
-        </style>
-        <script>
-            function copyLink() {{
-                const url = '{final_url}';
-                navigator.clipboard.writeText(url).then(() => {{
-                    alert("링크가 복사되었습니다!");
-                }}).catch(err => {{ prompt("이 링크를 복사하세요:", url); }});
-            }}
-            function sendEmail() {{
-                const subject = encodeURIComponent("[설문 요청] {survey_data['goal']}");
-                const body = encodeURIComponent("링크: " + '{final_url}');
-                window.location.href = "mailto:?subject=" + subject + "&body=" + body;
-            }}
-        </script>
-        <button class="kakao-btn" onclick="copyLink()">💬 카카오톡 링크 복사하기</button>
-        <button class="email-btn" onclick="sendEmail()">📧 이메일 보내기</button>
-        """, height=130)
-        
-        with st.expander("원문 링크 보기"):
-            st.code(final_url)
+        if not project_key:
+            st.error("보안을 위해 비밀번호(Key)를 반드시 입력해주세요!")
+        else:
+            full_structure = {
+                "goal": survey_data['goal'],
+                "main_criteria": survey_data['main_criteria'],
+                "sub_criteria": survey_data['sub_criteria'],
+                "secret_key": project_key  # [핵심] 비밀키도 URL에 포함
+            }
+            json_str = json.dumps(full_structure, ensure_ascii=False)
+            b64_data = base64.b64encode(json_str.encode("utf-8")).decode("utf-8")
+            url_safe = urllib.parse.quote(b64_data)
+            
+            # URL 생성
+            final_url = f"{FULL_URL}?data={url_safe}"
+            
+            st.markdown("### 👇 아래 버튼을 눌러 공유하세요")
+            
+            components.html(f"""
+            <style>
+                body {{ margin: 0; padding: 0; font-family: sans-serif; }}
+                .kakao-btn {{
+                    background-color: #FEE500; color: #000000; border: none; border-radius: 12px;
+                    padding: 15px 0; width: 100%; font-size: 16px; font-weight: bold; cursor: pointer;
+                    display: flex; align-items: center; justify-content: center; gap: 10px;
+                }}
+                .email-btn {{
+                    background-color: #f1f3f5; color: #495057; border: 1px solid #dee2e6;
+                    border-radius: 12px; padding: 12px 0; width: 100%; font-size: 14px;
+                    font-weight: bold; cursor: pointer; margin-top: 8px;
+                }}
+            </style>
+            <script>
+                function copyLink() {{
+                    const url = '{final_url}';
+                    navigator.clipboard.writeText(url).then(() => {{
+                        document.getElementById('msg').innerText = "✅ 복사되었습니다! 카톡방에 붙여넣으세요.";
+                        setTimeout(() => {{ document.getElementById('msg').innerText = ""; }}, 3000);
+                    }}).catch(err => {{ prompt("이 링크를 복사하세요:", url); }});
+                }}
+                function sendEmail() {{
+                    const subject = encodeURIComponent("[설문 요청] {survey_data['goal']}");
+                    const body = encodeURIComponent("링크: " + '{final_url}');
+                    window.location.href = "mailto:?subject=" + subject + "&body=" + body;
+                }}
+            </script>
+            <button class="kakao-btn" onclick="copyLink()">💬 카카오톡 링크 복사하기</button>
+            <div id="msg" style="text-align:center; color:green; font-size:12px; margin-top:5px; height:20px;"></div>
+            <button class="email-btn" onclick="sendEmail()">📧 이메일 보내기</button>
+            """, height=130)
+            
+            with st.expander("원문 링크 보기"):
+                st.code(final_url)
+                st.warning(f"🚨 중요: 나중에 결과를 확인할 때 비밀번호 **'{project_key}'**가 필요합니다. 꼭 기억하세요!")
 
 # ------------------------------------------------------------------
-# [MODE B] 응답자: 설문 진행 (1차 기준 비교 복구됨)
+# [MODE B] 응답자: 저장 시 비밀번호 포함
 # ------------------------------------------------------------------
 else:
     st.title(f"📝 {survey_data['goal']}")
     
     tasks = []
-    
-    # 1. [복구됨] 1차 기준끼리 비교 (그래야 종합 가중치가 나옴)
+    # 1차 기준 비교 복구 로직
     if len(survey_data['main_criteria']) > 1:
         tasks.append({"name": "📂 1. 평가 기준 중요도 비교", "items": survey_data['main_criteria']})
     
-    # 2. 세부 항목 비교
     for cat, items in survey_data['sub_criteria'].items():
         if len(items) > 1:
             tasks.append({"name": f"📂 2. [{cat}] 세부 항목 평가", "items": items})
@@ -140,7 +156,6 @@ else:
         input[type=range] {{ width: 100%; margin: 20px 0; }}
         
         .btn {{ width: 100%; padding: 15px; background: #228be6; color: white; border: none; border-radius: 8px; font-size: 1.1em; cursor: pointer; }}
-        .btn:disabled {{ background: #adb5bd; }}
         
         .modal {{ display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); justify-content: center; align-items: center; }}
         .modal-box {{ background: white; padding: 30px; border-radius: 15px; width: 90%; max-width: 400px; text-align: center; }}
@@ -257,7 +272,6 @@ else:
                 return;
             }}
             const p = pairs[pairIdx];
-            document.getElementById('progress').innerText = `${{pairIdx+1}} / ${{pairs.length}}`;
             document.getElementById('item-a').innerText = p.a;
             document.getElementById('item-b').innerText = p.b;
             document.getElementById('rank-hint-a').innerText = `(예상 ${{initialRanks[p.r]}}위)`;
@@ -354,10 +368,15 @@ else:
         if st.form_submit_button("제출"):
             try:
                 json.loads(code)
-                goal_filename = survey_data['goal'].replace(" ", "_")
+                # [핵심] 파일명에 비밀번호(Key)를 붙여서 저장!
+                goal_clean = survey_data['goal'].replace(" ", "_")
+                secret_key = survey_data.get('secret_key', 'public') # 키가 없으면 public
+                
                 if not os.path.exists("survey_data"):
                     os.makedirs("survey_data")
-                file_path = f"survey_data/{goal_filename}.csv"
+                    
+                # 파일명: [비밀번호]_[목표].csv
+                file_path = f"survey_data/{secret_key}_{goal_clean}.csv"
                 
                 save_data = {
                     "Time": datetime.now().strftime("%Y-%m-%d %H:%M"),
@@ -368,6 +387,6 @@ else:
                 try: old_df = pd.read_csv(file_path)
                 except: old_df = pd.DataFrame()
                 pd.concat([old_df, df], ignore_index=True).to_csv(file_path, index=False)
-                st.success(f"✅ '{survey_data['goal']}' 프로젝트에 저장되었습니다!")
+                st.success(f"✅ 제출되었습니다! (Project Key: {secret_key})")
             except Exception as e:
                 st.error(f"오류 발생: {e}")
