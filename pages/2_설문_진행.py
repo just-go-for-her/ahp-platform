@@ -8,11 +8,13 @@ from datetime import datetime
 import os
 
 # ==============================================================================
-# [설정] 여기에 본인의 사이트 주소를 한 번만 적어주세요! (맨 뒤에 / 제외)
-# 예: https://ahp-platform.streamlit.app
-# 로컬 테스트 중이라면: http://localhost:8501
+# [필독] 주소 설정 (가장 중요!)
+# 1. 앱을 실행하고 왼쪽 메뉴에서 [2_설문_진행]을 클릭하세요.
+# 2. 위쪽 인터넷 주소창에 있는 '전체 주소'를 복사하세요.
+#    (예: https://my-app.streamlit.app/설문_진행)
+# 3. 아래 따옴표 안에 그대로 붙여넣으세요.
 # ==============================================================================
-MY_DOMAIN = "https://ahp-platform-bbee45epwqjjy2zfpccz7p.streamlit.app/" 
+FULL_URL = "https://ahp-platform-bbee45epwqjjy2zfpccz7p.streamlit.app/%EC%84%A4%EB%AC%B8_%EC%A7%84%ED%96%89" 
 # ==============================================================================
 
 st.set_page_config(page_title="설문 진행", page_icon="📝", layout="wide")
@@ -39,7 +41,7 @@ else:
         survey_data = None
 
 # ------------------------------------------------------------------
-# [MODE A] 연구자: 링크 생성 (주소 수정 불필요 & 카톡 버튼 추가)
+# [MODE A] 연구자: 링크 생성 (주소 오류 해결됨)
 # ------------------------------------------------------------------
 if not is_respondent:
     st.title("📢 설문 배포 센터")
@@ -50,7 +52,12 @@ if not is_respondent:
 
     st.success(f"**목표:** {survey_data['goal']}")
     
-    # 지저분한 주소 설정창은 숨기고, 버튼 하나로 통합했습니다.
+    # 설정된 주소가 올바른지 화면에 보여줌 (검토용)
+    if "여기에" in FULL_URL:
+        st.error("🚨 코드 맨 윗줄의 'FULL_URL'을 아직 설정하지 않으셨군요!")
+        st.info("현재 페이지의 인터넷 주소창 내용을 복사해서 코드의 FULL_URL 변수에 넣어주세요.")
+        st.stop()
+
     if st.button("🔗 공유 링크 생성하기", type="primary", use_container_width=True):
         full_structure = {
             "goal": survey_data['goal'],
@@ -61,88 +68,57 @@ if not is_respondent:
         b64_data = base64.b64encode(json_str.encode("utf-8")).decode("utf-8")
         url_safe = urllib.parse.quote(b64_data)
         
-        # 설정된 도메인 사용 (자동화)
-        final_url = f"{MY_DOMAIN}/설문_진행?data={url_safe}"
+        # [수정됨] 사용자가 입력한 전체 주소 뒤에 바로 파라미터만 붙임
+        final_url = f"{FULL_URL}?data={url_safe}"
         
         st.markdown("### 👇 아래 버튼을 눌러 공유하세요")
         
-        # [핵심] 카카오톡 스타일의 대형 복사 버튼 (HTML/JS)
+        # 카카오톡 & 이메일 버튼 (기존 유지)
         components.html(f"""
         <style>
             body {{ margin: 0; padding: 0; font-family: sans-serif; }}
             .kakao-btn {{
-                background-color: #FEE500;
-                color: #000000;
-                border: none;
-                border-radius: 12px;
-                padding: 15px 0;
-                width: 100%;
-                font-size: 16px;
-                font-weight: bold;
-                cursor: pointer;
-                display: flex;
-                align-items: center;
-                justify-content: center;
-                gap: 10px;
+                background-color: #FEE500; color: #000000; border: none; border-radius: 12px;
+                padding: 15px 0; width: 100%; font-size: 16px; font-weight: bold; cursor: pointer;
+                display: flex; align-items: center; justify-content: center; gap: 10px;
             }}
             .kakao-btn:hover {{ background-color: #fdd835; }}
             .email-btn {{
-                background-color: #f1f3f5;
-                color: #495057;
-                border: 1px solid #dee2e6;
-                border-radius: 12px;
-                padding: 12px 0;
-                width: 100%;
-                font-size: 14px;
-                font-weight: bold;
-                cursor: pointer;
-                margin-top: 8px;
+                background-color: #f1f3f5; color: #495057; border: 1px solid #dee2e6;
+                border-radius: 12px; padding: 12px 0; width: 100%; font-size: 14px;
+                font-weight: bold; cursor: pointer; margin-top: 8px;
             }}
         </style>
-        
         <script>
             function copyLink() {{
                 const url = '{final_url}';
                 navigator.clipboard.writeText(url).then(() => {{
                     document.getElementById('msg').innerText = "✅ 복사되었습니다! 카톡방에 붙여넣으세요.";
                     setTimeout(() => {{ document.getElementById('msg').innerText = ""; }}, 3000);
-                }}).catch(err => {{
-                    prompt("이 링크를 복사하세요:", url);
-                }});
+                }}).catch(err => {{ prompt("이 링크를 복사하세요:", url); }});
             }}
-            
             function sendEmail() {{
                 const subject = encodeURIComponent("[설문 요청] {survey_data['goal']}");
                 const body = encodeURIComponent("링크: " + '{final_url}');
                 window.location.href = "mailto:?subject=" + subject + "&body=" + body;
             }}
         </script>
-
-        <button class="kakao-btn" onclick="copyLink()">
-            💬 카카오톡 링크 복사하기
-        </button>
+        <button class="kakao-btn" onclick="copyLink()">💬 카카오톡 링크 복사하기</button>
         <div id="msg" style="text-align:center; color:green; font-size:12px; margin-top:5px; height:20px;"></div>
-        
-        <button class="email-btn" onclick="sendEmail()">
-            📧 이메일 보내기
-        </button>
+        <button class="email-btn" onclick="sendEmail()">📧 이메일 보내기</button>
         """, height=130)
         
-        # 혹시 모를 수동 복사용
         with st.expander("원문 링크 보기"):
             st.code(final_url)
 
 # ------------------------------------------------------------------
-# [MODE B] 응답자: 설문 진행 (1차 비교 삭제 & 동료 로직 적용)
+# [MODE B] 응답자: 설문 진행 (동료 로직 + 1차 비교 삭제 유지)
 # ------------------------------------------------------------------
 else:
     st.title(f"📝 {survey_data['goal']}")
     
-    # [수정됨] 1차 기준은 건너뛰고, 세부 항목만 Tasks에 추가
     tasks = []
-    
-    # 1차 기준 비교 코드 삭제됨 (주석 처리 또는 제거)
-    # if len(survey_data['main_criteria']) > 1: ... (삭제)
+    # 1차 기준 비교 코드 삭제 상태 유지
     
     # 2. 세부 항목만 추가
     for cat, items in survey_data['sub_criteria'].items():
@@ -387,7 +363,6 @@ else:
         if st.form_submit_button("제출"):
             try:
                 json.loads(code)
-                # 데이터 저장: Goal 기준으로 폴더/파일 관리
                 goal_filename = survey_data['goal'].replace(" ", "_")
                 if not os.path.exists("survey_data"):
                     os.makedirs("survey_data")
@@ -401,7 +376,6 @@ else:
                 df = pd.DataFrame([save_data])
                 try: old_df = pd.read_csv(file_path)
                 except: old_df = pd.DataFrame()
-                
                 pd.concat([old_df, df], ignore_index=True).to_csv(file_path, index=False)
                 st.success(f"✅ '{survey_data['goal']}' 프로젝트에 저장되었습니다!")
             except Exception as e:
