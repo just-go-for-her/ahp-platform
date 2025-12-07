@@ -8,18 +8,14 @@ from datetime import datetime
 import os
 
 # ==============================================================================
-# [필독] 주소 설정
+# [설정] 본인의 실제 배포 주소 입력
 # ==============================================================================
-# 실제 배포된 주소 전체를 넣으세요 (맨 뒤 /설문_진행 포함 여부 확인)
-# 주소창의 주소를 그대로 복사해서 넣는 것이 가장 안전합니다.
-# 예: "https://my-app.streamlit.app/설문_진행" (페이지 명까지 포함 추천)
-# 만약 메인 도메인만 넣는다면 아래 코드에서 "/설문_진행"을 붙여줘야 함.
-# 여기서는 사용자가 주소창 전체를 복사했다고 가정하고 그대로 씁니다.
-FULL_URL = "https://ahp-platform-bbee45epwqjjy2zfpccz7p.streamlit.app/%EC%84%A4%EB%AC%B8_%EC%A7%84%ED%96%89" 
+FULL_URL = "https://ahp-platform.streamlit.app/설문_진행" 
 # ==============================================================================
 
 st.set_page_config(page_title="설문 진행", page_icon="📝", layout="wide")
 
+# 1. URL 데이터 처리
 query_params = st.query_params
 encoded_data = query_params.get("data", None)
 survey_data = None
@@ -41,7 +37,7 @@ else:
         survey_data = None
 
 # ------------------------------------------------------------------
-# [MODE A] 연구자: 비밀번호 설정 추가
+# [MODE A] 연구자: 비밀번호 설정 및 링크 생성 (연구자만 비밀번호를 암)
 # ------------------------------------------------------------------
 if not is_respondent:
     st.title("📢 설문 배포 센터 (Private Mode)")
@@ -52,30 +48,36 @@ if not is_respondent:
 
     st.success(f"**목표:** {survey_data['goal']}")
     
-    # [NEW] 비밀번호(Key) 설정 기능 추가
+    # 1. 주소 검증
+    if "여기에" in FULL_URL:
+        st.error("🚨 코드 맨 윗줄의 'FULL_URL'을 설정해주세요!")
+        st.stop()
+
+    # 2. 비밀번호 설정 (연구자용)
     with st.container(border=True):
-        st.subheader("🔐 보안 설정")
+        st.subheader("🔐 보안 설정 (관리자용)")
+        st.caption("응답자는 이 비밀번호를 알 필요가 없습니다. 데이터 확인용으로 연구자만 기억하세요.")
         project_key = st.text_input(
-            "나만의 프로젝트 비밀번호(Key)를 입력하세요.", 
-            placeholder="예: team_a, my_secret_123",
-            help="이 비밀번호를 입력해야 나중에 데이터 센터에서 결과를 볼 수 있습니다."
+            "프로젝트 비밀번호(Key) 설정", 
+            placeholder="예: team_a (이 키는 결과 조회 시 필요합니다)",
+            type="password"
         )
 
     if st.button("🔗 공유 링크 생성하기", type="primary", use_container_width=True):
         if not project_key:
-            st.error("보안을 위해 비밀번호(Key)를 반드시 입력해주세요!")
+            st.error("데이터 관리를 위해 비밀번호를 설정해주세요.")
         else:
+            # 데이터 패키징 (비밀번호 포함)
             full_structure = {
                 "goal": survey_data['goal'],
                 "main_criteria": survey_data['main_criteria'],
                 "sub_criteria": survey_data['sub_criteria'],
-                "secret_key": project_key  # [핵심] 비밀키도 URL에 포함
+                "secret_key": project_key  # [핵심] 비밀번호를 데이터 안에 숨김
             }
             json_str = json.dumps(full_structure, ensure_ascii=False)
             b64_data = base64.b64encode(json_str.encode("utf-8")).decode("utf-8")
             url_safe = urllib.parse.quote(b64_data)
             
-            # URL 생성
             final_url = f"{FULL_URL}?data={url_safe}"
             
             st.markdown("### 👇 아래 버튼을 눌러 공유하세요")
@@ -115,19 +117,20 @@ if not is_respondent:
             
             with st.expander("원문 링크 보기"):
                 st.code(final_url)
-                st.warning(f"🚨 중요: 나중에 결과를 확인할 때 비밀번호 **'{project_key}'**가 필요합니다. 꼭 기억하세요!")
+                st.info(f"💡 팁: 응답자는 링크만 누르면 됩니다. 비밀번호는 묻지 않습니다.")
 
 # ------------------------------------------------------------------
-# [MODE B] 응답자: 저장 시 비밀번호 포함
+# [MODE B] 응답자: 비밀번호 은닉 & 자동 저장
 # ------------------------------------------------------------------
 else:
     st.title(f"📝 {survey_data['goal']}")
     
     tasks = []
-    # 1차 기준 비교 복구 로직
+    # 1. 1차 기준 비교 (복구)
     if len(survey_data['main_criteria']) > 1:
         tasks.append({"name": "📂 1. 평가 기준 중요도 비교", "items": survey_data['main_criteria']})
     
+    # 2. 세부 항목 비교
     for cat, items in survey_data['sub_criteria'].items():
         if len(items) > 1:
             tasks.append({"name": f"📂 2. [{cat}] 세부 항목 평가", "items": items})
@@ -156,6 +159,7 @@ else:
         input[type=range] {{ width: 100%; margin: 20px 0; }}
         
         .btn {{ width: 100%; padding: 15px; background: #228be6; color: white; border: none; border-radius: 8px; font-size: 1.1em; cursor: pointer; }}
+        .btn:disabled {{ background: #adb5bd; }}
         
         .modal {{ display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); justify-content: center; align-items: center; }}
         .modal-box {{ background: white; padding: 30px; border-radius: 15px; width: 90%; max-width: 400px; text-align: center; }}
@@ -365,17 +369,17 @@ else:
         st.write("📋 **데이터 제출**")
         respondent = st.text_input("응답자 성함")
         code = st.text_area("결과 코드 붙여넣기")
+        
         if st.form_submit_button("제출"):
             try:
                 json.loads(code)
-                # [핵심] 파일명에 비밀번호(Key)를 붙여서 저장!
+                # [핵심] 숨겨진 비밀번호를 꺼내서 파일명에 사용
                 goal_clean = survey_data['goal'].replace(" ", "_")
-                secret_key = survey_data.get('secret_key', 'public') # 키가 없으면 public
+                secret_key = survey_data.get('secret_key', 'public')
                 
                 if not os.path.exists("survey_data"):
                     os.makedirs("survey_data")
                     
-                # 파일명: [비밀번호]_[목표].csv
                 file_path = f"survey_data/{secret_key}_{goal_clean}.csv"
                 
                 save_data = {
@@ -387,6 +391,9 @@ else:
                 try: old_df = pd.read_csv(file_path)
                 except: old_df = pd.DataFrame()
                 pd.concat([old_df, df], ignore_index=True).to_csv(file_path, index=False)
-                st.success(f"✅ 제출되었습니다! (Project Key: {secret_key})")
+                
+                # [수정됨] 비밀번호 노출 금지 메시지
+                st.success(f"✅ 안전하게 제출되었습니다! 감사합니다.")
+                st.balloons()
             except Exception as e:
                 st.error(f"오류 발생: {e}")
