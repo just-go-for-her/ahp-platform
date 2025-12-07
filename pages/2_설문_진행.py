@@ -6,168 +6,190 @@ import urllib.parse
 import pandas as pd
 from datetime import datetime
 
-st.set_page_config(page_title="설문 진행", page_icon="📝", layout="wide")
+st.set_page_config(page_title="설문 생성 및 진행", page_icon="📝", layout="wide")
 
-# --------------------------------------------------------------------------
-# 1. 데이터 복원 (URL -> Python)
-# --------------------------------------------------------------------------
-survey_data = None
-
-# (1) URL에 데이터가 있는지 확인 (공유받은 사람)
+# ------------------------------------------------------------------
+# 1. URL 데이터 확인 (응답자인지 연구자인지 구분)
+# ------------------------------------------------------------------
 query_params = st.query_params
 encoded_data = query_params.get("data", None)
+survey_data = None
 
+# 응답자 모드 (URL에 데이터가 있음)
 if encoded_data:
     try:
-        # 암호 해독 (URL Decode -> Base64 Decode -> JSON Load)
         decoded_b64 = urllib.parse.unquote(encoded_data)
         decoded_bytes = base64.b64decode(decoded_b64)
         survey_data = json.loads(decoded_bytes.decode("utf-8"))
-    except Exception as e:
-        st.error(f"❌ 설문 링크가 손상되었습니다. (Error: {e})")
+        is_respondent = True
+    except:
+        st.error("잘못된 링크입니다.")
         st.stop()
 
-# (2) URL에 없으면 세션 확인 (연구자 본인)
-elif 'survey_design' in st.session_state:
-    survey_data = st.session_state['survey_design']
-
-# (3) 둘 다 없으면 에러 표시
+# 연구자 모드 (URL 데이터 없음)
 else:
-    st.warning("⚠️ 활성화된 설문이 없습니다.")
-    st.info("👈 [1_연구_설계_진단] 메뉴에서 먼저 설문을 만들어주세요.")
-    st.stop()
+    is_respondent = False
+    # 1번 페이지에서 넘겨준 데이터가 있는지 확인
+    if 'passed_structure' in st.session_state:
+        initial_data = st.session_state['passed_structure']
+    else:
+        initial_data = {"goal": "", "criteria": []}
 
-# --------------------------------------------------------------------------
-# 2. 설문 화면 표시
-# --------------------------------------------------------------------------
-st.title(f"📝 {survey_data['goal']}")
-st.caption("다음 항목들의 중요도를 비교해주세요.")
+# ------------------------------------------------------------------
+# 2. [연구자 모드] 구조 수정 및 링크 생성
+# ------------------------------------------------------------------
+if not is_respondent:
+    st.title("🛠️ 설문지 구조 확정 및 배포")
+    st.info("1번 페이지에서 가져온 구조를 여기서 최종 수정하고 링크를 만드세요.")
 
-# [중요] Python 리스트를 자바스크립트용 문자열로 변환 (오류 해결 핵심!)
-# ensure_ascii=False를 해야 한글이 깨지지 않고 JS로 넘어갑니다.
-js_criteria = json.dumps(survey_data['criteria'], ensure_ascii=False)
-
-# 친구의 HTML 코드 (데이터 주입 부분 수정됨)
-html_code = f"""
-<!DOCTYPE html>
-<html lang="ko">
-<head>
-<meta charset="UTF-8">
-<style>
-    body {{ font-family: "Pretendard", sans-serif; padding: 10px; }}
-    .card {{ 
-        border: 1px solid #e0e0e0; border-radius: 12px; padding: 20px; 
-        margin-bottom: 15px; background: white; box-shadow: 0 2px 5px rgba(0,0,0,0.05);
-    }}
-    .vs-box {{ 
-        display: flex; justify-content: space-between; align-items: center; 
-        font-weight: bold; font-size: 1.1em; margin-bottom: 15px;
-    }}
-    .slider-wrapper {{ position: relative; height: 40px; }}
-    input[type=range] {{ 
-        width: 100%; cursor: pointer;
-    }}
-    .labels {{ 
-        display: flex; justify-content: space-between; font-size: 0.85em; color: #666; margin-top: 5px;
-    }}
-    .val-display {{ text-align: center; color: #228be6; font-weight: bold; margin-bottom: 10px; }}
-</style>
-</head>
-<body>
-
-<div id="survey-container"></div>
-<div style="text-align: center; margin-top: 20px; color: #888;">
-    <small>모든 응답을 완료하면 아래 '제출' 버튼을 눌러주세요.</small>
-</div>
-
-<script>
-    // Python에서 받은 데이터 (여기서 에러가 많이 납니다. json.dumps 필수!)
-    const criteria = {js_criteria};
-    
-    // 쌍대비교 조합 생성
-    let pairs = [];
-    for(let i=0; i<criteria.length; i++) {{
-        for(let j=i+1; j<criteria.length; j++) {{
-            pairs.push([criteria[i], criteria[j]]);
-        }}
-    }}
-
-    const container = document.getElementById('survey-container');
-    
-    pairs.forEach((pair, idx) => {{
-        const itemA = pair[0];
-        const itemB = pair[1];
+    # 1. 구조 수정 칸 마련 (요청사항)
+    with st.container(border=True):
+        st.subheader("1. 구조 최종 점검")
+        final_goal = st.text_input("설문 제목 (목표)", value=initial_data.get("goal", ""))
         
-        const card = document.createElement('div');
-        card.className = 'card';
-        card.innerHTML = `
-            <div class="vs-box">
-                <span style="color:#228be6;">${{itemA}}</span>
-                <span style="font-size:0.8em; color:#ccc;">VS</span>
-                <span style="color:#fa5252;">${{itemB}}</span>
-            </div>
-            <div class="val-display" id="disp_${{idx}}">동등함 (1:1)</div>
-            <div class="slider-wrapper">
-                <input type="range" id="rng_${{idx}}" min="-9" max="9" value="0" step="1" 
-                       oninput="updateLabel(${{idx}}, '${{itemA}}', '${{itemB}}')">
-            </div>
-            <div class="labels">
-                <span>◀ ${{itemA}} 중요</span>
-                <span>${{itemB}} 중요 ▶</span>
-            </div>
-        `;
-        container.appendChild(card);
-    }});
-
-    function updateLabel(idx, nameA, nameB) {{
-        const val = parseInt(document.getElementById('rng_' + idx).value);
-        const disp = document.getElementById('disp_' + idx);
+        # 기준 수정 (콤마로 구분해서 입력받기)
+        current_criteria = ", ".join(initial_data.get("criteria", []))
+        final_criteria_str = st.text_area("비교할 항목들 (쉼표로 구분)", value=current_criteria, help="예: 맛, 가격, 서비스")
         
-        if (val === 0) disp.innerText = "동등함 (1:1)";
-        else if (val < 0) disp.innerText = `${{nameA}} 쪽으로 ${{Math.abs(val)+1}}배`;
-        else disp.innerText = `${{nameB}} 쪽으로 ${{val+1}}배`;
-    }}
-</script>
+        final_criteria = [x.strip() for x in final_criteria_str.split(",") if x.strip()]
 
-</body>
-</html>
-"""
-
-# HTML 렌더링
-components.html(html_code, height=600, scrolling=True)
-
-# --------------------------------------------------------------------------
-# 3. 제출 및 저장 (파이썬 로직)
-# --------------------------------------------------------------------------
-st.divider()
-with st.form("survey_form"):
-    st.write("📋 **설문 제출하기**")
-    respondent = st.text_input("응답자 성함 (선택사항)")
-    
-    # [참고] 원래는 HTML에서 값을 받아와야 하지만, 
-    # Streamlit 기본 기능으로는 통신이 어렵습니다. 
-    # 일단은 '제출 버튼'이 동작하고 데이터가 쌓이는 흐름을 확인하세요.
-    
-    submit = st.form_submit_button("설문 결과 전송", type="primary")
-    
-    if submit:
-        # 데이터 저장 (CSV)
-        save_data = {
-            "Timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-            "Goal": survey_data['goal'],
-            "Respondent": respondent,
-            "Status": "Completed"
-        }
-        
-        df = pd.DataFrame([save_data])
-        
-        # 파일이 없으면 헤더 포함 저장, 있으면 이어쓰기
-        try:
-            old_df = pd.read_csv("ahp_survey_results.csv")
-            new_df = pd.concat([old_df, df], ignore_index=True)
-        except:
-            new_df = df
+    # 2. 링크 생성 버튼
+    if st.button("🔗 설문 링크 생성하기", type="primary"):
+        if len(final_criteria) < 2:
+            st.error("최소 2개 이상의 항목이 필요합니다.")
+        else:
+            # 패키징 & 암호화
+            pkg = {"goal": final_goal, "criteria": final_criteria}
+            json_str = json.dumps(pkg, ensure_ascii=False)
+            b64_data = base64.b64encode(json_str.encode("utf-8")).decode("utf-8")
+            url_safe = urllib.parse.quote(b64_data)
             
-        new_df.to_csv("ahp_survey_results.csv", index=False)
+            # 링크 표시
+            base_url = "https://ahp-platform.streamlit.app/설문_진행"
+            final_url = f"{base_url}?data={url_safe}"
+            
+            st.success("설문지가 완성되었습니다!")
+            st.code(final_url, language="text")
+            st.caption("위 링크를 복사해서 친구나 전문가에게 보내세요.")
+
+# ------------------------------------------------------------------
+# 3. [응답자 모드] 친구의 Tool 실행 & 데이터 수집
+# ------------------------------------------------------------------
+else:
+    st.title(f"📝 {survey_data['goal']} - 전문가 설문")
+    
+    # 친구의 HTML Tool에 데이터를 넣어줍니다.
+    js_criteria = json.dumps(survey_data['criteria'], ensure_ascii=False)
+    
+    # [친구의 Tool 코드 삽입] 
+    # 핵심: 결과값을 복사할 수 있게 JS 수정됨
+    html_code = f"""
+    <!DOCTYPE html>
+    <html lang="ko">
+    <head>
+    <meta charset="UTF-8">
+    <style>
+        body {{ font-family: "Pretendard", sans-serif; padding: 10px; }}
+        .card {{ border: 1px solid #ddd; padding: 20px; margin-bottom: 15px; border-radius: 8px; box-shadow: 0 2px 5px rgba(0,0,0,0.05); }}
+        input[type=range] {{ width: 100%; margin: 15px 0; }}
+        .val-disp {{ text-align: center; font-weight: bold; color: #228be6; }}
+        .btn {{ width:100%; padding:15px; background:#228be6; color:white; border:none; border-radius:8px; cursor:pointer; font-size:1.1em; }}
+    </style>
+    </head>
+    <body>
+    <div id="survey-area"></div>
+    <div id="result-area" style="display:none; text-align:center; margin-top:20px;">
+        <h3>🎉 설문 완료!</h3>
+        <p>아래 <b>[결과 코드]</b>를 복사해서 하단의 입력창에 붙여넣어주세요.</p>
+        <textarea id="result-code" style="width:100%; height:100px; font-family:monospace;"></textarea>
+    </div>
+    <script>
+        const criteria = {js_criteria};
+        let pairs = [], answers = {{}};
         
-        st.success("✅ 제출되었습니다! [3_결과_데이터_센터]에서 확인할 수 있습니다.")
+        // 쌍 생성
+        for(let i=0; i<criteria.length; i++) {{
+            for(let j=i+1; j<criteria.length; j++) {{ pairs.push([criteria[i], criteria[j]]); }}
+        }}
+        
+        const area = document.getElementById('survey-area');
+        
+        function render() {{
+            let html = "";
+            pairs.forEach((p, idx) => {{
+                html += `
+                <div class="card">
+                    <div style="display:flex; justify-content:space-between; font-weight:bold;">
+                        <span>${{p[0]}}</span> <span>VS</span> <span>${{p[1]}}</span>
+                    </div>
+                    <input type="range" id="r_${{idx}}" min="-9" max="9" value="0" step="1" oninput="upd(${{idx}})">
+                    <div id="d_${{idx}}" class="val-disp">동등함 (1:1)</div>
+                </div>`;
+            }});
+            html += `<button class="btn" onclick="finish()">결과 코드 생성하기</button>`;
+            area.innerHTML = html;
+        }}
+        
+        function upd(idx) {{
+            const val = document.getElementById('r_'+idx).value;
+            const disp = document.getElementById('d_'+idx);
+            if(val==0) disp.innerText = "동등함";
+            else if(val<0) disp.innerText = "왼쪽이 " + (Math.abs(val)+1) + "배 중요";
+            else disp.innerText = "오른쪽이 " + (Number(val)+1) + "배 중요";
+        }}
+        
+        function finish() {{
+            pairs.forEach((p, idx) => {{
+                answers[`${{p[0]}}_vs_${{p[1]}}`] = document.getElementById('r_'+idx).value;
+            }});
+            // 결과 JSON 생성
+            const finalJson = JSON.stringify(answers);
+            document.getElementById('result-area').style.display = 'block';
+            document.getElementById('result-code').value = finalJson;
+            document.getElementById('survey-area').style.display = 'none';
+        }}
+        
+        render();
+    </script>
+    </body>
+    </html>
+    """
+    
+    components.html(html_code, height=600, scrolling=True)
+    
+    st.divider()
+    st.markdown("### 📥 데이터 제출 (마지막 단계)")
+    st.info("위 화면에서 '결과 코드 생성하기'를 누른 뒤, 나온 코드를 아래에 붙여넣고 제출하세요.")
+    
+    with st.form("save_form"):
+        respondent = st.text_input("응답자 성함")
+        result_code = st.text_area("결과 코드 붙여넣기")
+        
+        if st.form_submit_button("✅ 최종 제출하기"):
+            if not result_code:
+                st.error("결과 코드를 입력해주세요.")
+            else:
+                # 데이터 저장 로직
+                try:
+                    # 유효한 JSON인지 확인
+                    json.loads(result_code)
+                    
+                    save_data = {
+                        "Time": datetime.now().strftime("%Y-%m-%d %H:%M"),
+                        "Goal": survey_data['goal'],
+                        "Respondent": respondent,
+                        "Raw_Data": result_code # 분석용 원본 데이터
+                    }
+                    
+                    df = pd.DataFrame([save_data])
+                    try:
+                        old_df = pd.read_csv("ahp_results.csv")
+                        final_df = pd.concat([old_df, df], ignore_index=True)
+                    except:
+                        final_df = df
+                    
+                    final_df.to_csv("ahp_results.csv", index=False)
+                    st.success("수고하셨습니다! 데이터가 '결과 데이터 센터'로 전송되었습니다.")
+                    st.balloons()
+                except:
+                    st.error("코드가 올바르지 않습니다. 복사한 코드를 정확히 붙여넣어 주세요.")
