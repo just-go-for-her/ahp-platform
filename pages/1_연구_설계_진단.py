@@ -4,7 +4,7 @@ import re
 
 st.set_page_config(page_title="연구 설계 및 진단", page_icon="🧠", layout="wide")
 
-# 1. 인증 설정
+# 1. 인증
 api_key = None
 if "GOOGLE_API_KEY" in st.secrets:
     api_key = st.secrets["GOOGLE_API_KEY"]
@@ -118,14 +118,16 @@ if goal:
                     render_result_ui(f"세부항목: {p}", res)
 
         # ------------------------------------------------------------------
-        # [변경됨] 배포 버튼 삭제 -> 데이터 전송 버튼으로 변경
+        # [수정됨] 번호 삭제하고 깔끔하게 버튼만 배치
         # ------------------------------------------------------------------
         st.divider()
-        st.subheader("3. 다음 단계")
-        if st.button("💾 구조 확정 및 설문 도구로 보내기"):
+        st.markdown("### 📤 설문 생성 단계")
+        st.caption("구조가 확정되었다면 아래 버튼을 눌러 설문 도구로 이동하세요.")
+        
+        if st.button("💾 구조 확정 및 설문 배포하러 가기"):
             st.session_state['passed_structure'] = {
                 "goal": goal,
                 "main_criteria": main_criteria,
                 "sub_criteria": structure_data
             }
-            st.success("✅ 구조가 저장되었습니다! 왼쪽 메뉴의 [2_설문_진행]으로 이동하여 배포하세요.")
+            st.success("✅ 구조가 저장되었습니다! 왼쪽 메뉴의 [2_설문_진행]으로 이동하세요.")
