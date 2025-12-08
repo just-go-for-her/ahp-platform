@@ -1,4 +1,4 @@
-import streamlit as st
+fimport streamlit as st
 import google.generativeai as genai
 import re
 
@@ -19,33 +19,70 @@ if api_key:
     except:
         pass
 
-# 2. AI 분석 함수
+# 2. AI 분석 함수 (에러 핸들링 강화)
+# --------------------------------------------------------------------------
 def analyze_ahp_logic(goal, parent, children):
     if not children:
-        return {"grade": "정보없음", "summary": "하위 항목 없음", "suggestion": "추가 필요", "example": "추천 없음", "detail": "데이터 없음"}
+        return {"grade": "정보없음", "summary": "하위 항목 없음", "suggestion": "항목 추가 필요", "example": "추천 없음", "detail": "데이터 없음"}
     
     prompt = f"""
-    [역할] AHP 구조 진단 전문가
-    [대상] 목표: {goal} / 상위: {parent} / 하위: {children}
+    [역할] AHP 구조 진단 컨설턴트
+    [대상] 목표: {goal} / 상위항목: {parent} / 하위항목들: {children}
+    
     [지침]
-    1. 논리적(독립성, MECE) 문제가 없으면 '양호' 등급.
-    2. [EXAMPLE]에는 현재 계층의 **핵심 키워드 3~5개**만 명사형으로 나열 (설명 X).
-    [태그] [GRADE], [SUMMARY], [SUGGESTION], [EXAMPLE], [DETAIL]
+    1. 논리적(독립성, MECE)으로 문제가 없다면 '양호' 등급을 주어라.
+    2. [EXAMPLE]에는 현재 계층에 적합한 **핵심 키워드 3~5개**를 명사형으로 나열하라. (설명 금지)
+    
+    [필수 출력 태그]
+    [GRADE] (양호/주의/위험)
+    [SUMMARY] (3줄 요약)
+    [SUGGESTION] (1줄 제안)
+    [EXAMPLE] (3~5개의 모범 항목 리스트)
+    [DETAIL] (상세 분석)
     """
+    
     try:
+        # AI에게 요청
         response = model.generate_content(prompt)
         text = response.text
+        
+        # 정규표현식 파싱
         def extract(tag, t):
             match = re.search(fr"\[{tag}\](.*?)(?=\[|$)", t, re.DOTALL)
             return match.group(1).strip() if match else "내용 없음"
-        return {
-            "grade": extract("GRADE", text), "summary": extract("SUMMARY", text),
-            "suggestion": extract("SUGGESTION", text),
-            "example": extract("EXAMPLE", text), "detail": extract("DETAIL", text)
-        }
-    except Exception as e:
-        return {"grade": "에러", "detail": str(e)}
 
+        data = {
+            "grade": extract("GRADE", text),
+            "summary": extract("SUMMARY", text),
+            "suggestion": extract("SUGGESTION", text),
+            "example": extract("EXAMPLE", text),
+            "detail": extract("DETAIL", text)
+        }
+        if data["grade"] == "내용 없음": 
+            data["grade"] = "주의"
+            data["detail"] = text
+        return data
+
+    except Exception as e:
+        # [핵심] 사용량 초과(429) 에러가 발생했을 때 부드럽게 대처
+        error_msg = str(e)
+        if "429" in error_msg or "Quota" in error_msg:
+            return {
+                "grade": "⏳ 대기 필요",
+                "summary": "AI 사용량이 일시적으로 많습니다.",
+                "suggestion": "약 1분 뒤에 다시 버튼을 눌러주세요.",
+                "example": "잠시 휴식",
+                "detail": f"구글 AI 무료 버전의 분당 사용 한도에 도달했습니다.\n(잠시만 기다렸다가 시도하면 정상 작동합니다.)\n\nError: {error_msg}"
+            }
+        
+        # 그 외 다른 에러
+        return {
+            "grade": "에러", 
+            "summary": "알 수 없는 오류 발생",
+            "suggestion": "관리자에게 문의하세요.",
+            "example": "없음",
+            "detail": str(e)
+        }
 # 3. UI 렌더링
 def render_result_ui(title, data):
     grade = data.get('grade', '정보없음')
