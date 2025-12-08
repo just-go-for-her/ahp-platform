@@ -10,7 +10,7 @@ import os
 # ==============================================================================
 # [설정] 본인의 실제 배포 주소 입력
 # ==============================================================================
-FULL_URL = "https://ahp-platform-bbee45epwqjjy2zfpccz7p.streamlit.app/%EC%84%A4%EB%AC%B8_%EC%A7%84%ED%96%89" 
+FULL_URL = "https://ahp-platform.streamlit.app/설문_진행" 
 # ==============================================================================
 
 st.set_page_config(page_title="설문 진행", page_icon="📝", layout="wide")
@@ -37,7 +37,7 @@ else:
         survey_data = None
 
 # ------------------------------------------------------------------
-# [MODE A] 연구자: 비밀번호 설정 및 링크 생성 (연구자만 비밀번호를 암)
+# [MODE A] 연구자: 비밀번호 설정 및 링크 생성
 # ------------------------------------------------------------------
 if not is_respondent:
     st.title("📢 설문 배포 센터 (Private Mode)")
@@ -48,12 +48,10 @@ if not is_respondent:
 
     st.success(f"**목표:** {survey_data['goal']}")
     
-    # 1. 주소 검증
     if "여기에" in FULL_URL:
         st.error("🚨 코드 맨 윗줄의 'FULL_URL'을 설정해주세요!")
         st.stop()
 
-    # 2. 비밀번호 설정 (연구자용)
     with st.container(border=True):
         st.subheader("🔐 보안 설정 (관리자용)")
         st.caption("응답자는 이 비밀번호를 알 필요가 없습니다. 데이터 확인용으로 연구자만 기억하세요.")
@@ -67,12 +65,11 @@ if not is_respondent:
         if not project_key:
             st.error("데이터 관리를 위해 비밀번호를 설정해주세요.")
         else:
-            # 데이터 패키징 (비밀번호 포함)
             full_structure = {
                 "goal": survey_data['goal'],
                 "main_criteria": survey_data['main_criteria'],
                 "sub_criteria": survey_data['sub_criteria'],
-                "secret_key": project_key  # [핵심] 비밀번호를 데이터 안에 숨김
+                "secret_key": project_key
             }
             json_str = json.dumps(full_structure, ensure_ascii=False)
             b64_data = base64.b64encode(json_str.encode("utf-8")).decode("utf-8")
@@ -120,13 +117,13 @@ if not is_respondent:
                 st.info(f"💡 팁: 응답자는 링크만 누르면 됩니다. 비밀번호는 묻지 않습니다.")
 
 # ------------------------------------------------------------------
-# [MODE B] 응답자: 비밀번호 은닉 & 자동 저장
+# [MODE B] 응답자: 설문 진행 (중복 순위 방지 적용)
 # ------------------------------------------------------------------
 else:
     st.title(f"📝 {survey_data['goal']}")
     
     tasks = []
-    # 1. 1차 기준 비교 (복구)
+    # 1. 1차 기준 비교
     if len(survey_data['main_criteria']) > 1:
         tasks.append({"name": "📂 1. 평가 기준 중요도 비교", "items": survey_data['main_criteria']})
     
@@ -254,6 +251,14 @@ else:
                 if(!val) {{ alert("순위를 모두 선택해주세요."); return; }}
                 initialRanks.push(val);
             }}
+            
+            // [추가됨] 중복 순위 체크 로직
+            const rankSet = new Set(initialRanks);
+            if(rankSet.size !== initialRanks.length) {{
+                alert("⚠️ 중복된 순위가 있습니다!\\n각 항목에 서로 다른 순위를 지정해주세요.");
+                return;
+            }}
+
             const n = items.length;
             matrix = Array.from({{length: n}}, () => Array(n).fill(0));
             for(let i=0; i<n; i++) matrix[i][i] = 1;
@@ -373,7 +378,6 @@ else:
         if st.form_submit_button("제출"):
             try:
                 json.loads(code)
-                # [핵심] 숨겨진 비밀번호를 꺼내서 파일명에 사용
                 goal_clean = survey_data['goal'].replace(" ", "_")
                 secret_key = survey_data.get('secret_key', 'public')
                 
@@ -392,7 +396,6 @@ else:
                 except: old_df = pd.DataFrame()
                 pd.concat([old_df, df], ignore_index=True).to_csv(file_path, index=False)
                 
-                # [수정됨] 비밀번호 노출 금지 메시지
                 st.success(f"✅ 안전하게 제출되었습니다! 감사합니다.")
                 st.balloons()
             except Exception as e:
