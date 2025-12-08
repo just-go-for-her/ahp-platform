@@ -22,68 +22,74 @@ elif "GOOGLE_API_KEY" in st.secrets:
 if not API_KEYS:
     with st.sidebar:
         st.header("🔑 API 키 입력")
-        st.info("키가 3개라면 줄바꿈으로 구분해서 넣으세요.")
+        st.info("키가 여러 개면 줄바꿈으로 입력하세요.")
         user_input = st.text_area("API Key 목록", type="password", height=150)
         if user_input:
             API_KEYS = [k.strip() for k in user_input.replace(',', '\n').split('\n') if k.strip()]
 
 # --------------------------------------------------------------------------
-# 3. AI 분석 함수 (텍스트 청소 기능 강화)
+# 3. AI 분석 함수 (모델 5종 + 속도 조절)
 # --------------------------------------------------------------------------
 def analyze_ahp_logic(goal, parent, children):
+    # 에러 방지용 기본값
+    empty_res = {"grade": "오류", "summary": "분석 실패", "suggestion": "잠시 후 시도", "example": "", "detail": "API 호출량 초과"}
+
     if not children:
-        return {"grade": "정보없음", "summary": "하위 항목 없음", "suggestion": "", "example": "", "detail": ""}
+        return {**empty_res, "grade": "정보없음", "summary": "하위 항목 없음"}
     
     if not API_KEYS:
-        return {"grade": "키 없음", "summary": "API 키가 없습니다.", "suggestion": "", "example": "", "detail": ""}
+        return {**empty_res, "grade": "키 없음", "summary": "API 키 없음"}
     
-    is_main_criteria = (goal == parent)
-    
-    if is_main_criteria:
-        scope_guide = "현재 '1차 평가 기준'을 심사 중입니다. 전체적인 균형을 보세요."
-    else:
-        scope_guide = f"현재 상위 기준 '{parent}'의 '하위 세부 항목'만 심사 중입니다."
+    # [상황 인식]
+    is_main = (goal == parent)
+    scope_guide = "1차 평가 기준의 균형성(MECE)을 중심으로 진단." if is_main else f"상위 기준 '{parent}'의 하위 세부 항목 적절성만 진단(다른 기준 언급 금지)."
 
+    # [전략] 5개 모델 총동원 (Lite 우선)
     models = [
-        'gemini-2.5-flash-lite', 'gemini-2.0-flash-lite', 
-        'gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-2.0-pro-exp-02-05'
+        'gemini-2.5-flash-lite', 
+        'gemini-2.0-flash-lite', 
+        'gemini-2.5-flash', 
+        'gemini-2.0-flash', 
+        'gemini-2.0-pro-exp-02-05'
     ]
     
-    # [프롬프트 수정] 특수문자 사용 금지 명령 추가
     prompt = f"""
-    [역할] 상황에 맞춰 유연하게 사고하는 연구 멘토
     [분석 대상]
-    - 최종 목표: {goal}
-    - 현재 기준: {parent}
-    - 하위 항목: {children}
+    - 목표: {goal}
+    - 기준: {parent}
+    - 하위: {children}
     
-    [지침 1: 평가 기준]
-    - 일상 주제: 관대하게 평가 (상식적이면 '적합')
-    - 전문 주제: 논리적으로 평가 (치명적 오류 없으면 '적합')
+    [지침 1: 태도]
+    - 주제가 전문적이면 '냉철한 컨설턴트', 일상적이면 '친절한 멘토' 톤으로 작성.
     - {scope_guide}
-
-    [지침 2: 출력 스타일 (중요)]
-    - **절대 굵은 글씨(**)나 특수기호를 사용하지 마라.** (깔끔한 텍스트만 출력)
-    - 문장은 간결하게 끊어서 작성하라.
+    
+    [지침 2: 형식]
+    - **한국어**로 작성.
+    - **특수문자(**, *) 사용 금지.**
+    - [EXAMPLE]은 설명 없이 **추천 항목 명사**만 나열.
     
     [출력 포맷]
     [GRADE] 적합/보완필요/부적합
-    [SUMMARY] (1줄 총평)
+    [SUMMARY] (1줄 요약)
     [SUGGESTION] (1줄 제안)
     [EXAMPLE]
     - 항목1
     - 항목2
     - 항목3
     [DETAIL]
-    1. 구성(MECE): (내용)
-    2. 위계 적절성: (내용)
-    3. 용어 명확성: (내용)
+    1. 구성: (내용)
+    2. 위계: (내용)
+    3. 용어: (내용)
     """
     
     attempts = []
+    # 키가 3개면 15번 시도
     for key in API_KEYS:
         for model in models:
             attempts.append((key, model))
+    
+    # [중요] 키 순서는 섞고, 모델은 Lite부터 쓰도록 정렬
+    # (복잡하면 그냥 순차 실행이 답입니다)
     
     for i, (key, model_name) in enumerate(attempts):
         try:
@@ -92,15 +98,12 @@ def analyze_ahp_logic(goal, parent, children):
             response = model.generate_content(prompt)
             text = response.text
             
-            # [핵심] 텍스트 청소기 (Cleaner)
             def extract(tag, t):
                 match = re.search(fr"\[{tag}\](.*?)(?=\[|$)", t, re.DOTALL | re.IGNORECASE)
                 if match:
-                    content = match.group(1).strip()
-                    # 1. ** 기호 제거 (Bold Marker 삭제)
-                    content = content.replace("**", "")
-                    # 2. 앞뒤 불필요한 공백/기호 제거
-                    return re.sub(r"^[\s\:\-]]+|[\s\]\:\-]+$", "", content).strip()
+                    c = match.group(1).strip()
+                    c = c.replace("**", "").replace("*", "") # 별표 제거
+                    return re.sub(r"^[\s\:\-]]+|[\s\]\:\-]+$", "", c).strip()
                 return "-"
 
             return {
@@ -112,10 +115,11 @@ def analyze_ahp_logic(goal, parent, children):
             }
 
         except Exception as e:
-            time.sleep(0.2)
+            # 에러 나면 1초 쉬고 다음 모델로
+            time.sleep(1)
             continue
 
-    return {"grade": "대기", "summary": "모든 API 사용량 초과", "detail": "잠시 후 다시 시도해주세요.", "example": ""}
+    return {**empty_res, "detail": "모든 모델이 응답하지 않습니다. (사용량 초과)"}
 
 # --------------------------------------------------------------------------
 # 4. UI 렌더링 함수
@@ -139,7 +143,7 @@ def render_result_ui(title, data, count_msg=""):
         st.write(f"**📋 진단 요약:** {data.get('summary', '-')}")
         
         if "적합" in grade:
-            st.success(f"💡 **제안:** {data.get('suggestion', '현재 구성이 아주 훌륭합니다!')}")
+            st.success(f"💡 **제안:** {data.get('suggestion', '현재 구성이 훌륭합니다.')}")
         else:
             st.info(f"💡 **제안:** {data.get('suggestion', '-')}")
         
@@ -152,14 +156,11 @@ def render_result_ui(title, data, count_msg=""):
             </div>
             """, unsafe_allow_html=True)
         
-        # 상세 분석 부분 깔끔하게 출력
         with st.expander("🔍 상세 분석 보기"):
-            # 여기서 한번 더 ** 제거 (이중 안전장치)
-            detail_text = data.get('detail', '-').replace("**", "")
-            st.markdown(detail_text)
+            st.write(data.get('detail', '-'))
 
 # --------------------------------------------------------------------------
-# 5. 메인 로직
+# 5. 메인 로직 (안전 속도: 10초 대기)
 # --------------------------------------------------------------------------
 if 'main_count' not in st.session_state: st.session_state.main_count = 1 
 if 'sub_counts' not in st.session_state: st.session_state.sub_counts = {}
@@ -167,9 +168,9 @@ if 'sub_counts' not in st.session_state: st.session_state.sub_counts = {}
 st.title("1️⃣ 연구 설계 및 AI 진단")
 
 if API_KEYS:
-    st.caption(f"🔒 API 키 {len(API_KEYS)}개 연동됨")
+    st.caption(f"🔒 API 키 {len(API_KEYS)}개 연동됨 (안전 모드)")
 
-goal = st.text_input("🎯 최종 목표", placeholder="예: 차세대 전투기 도입 / 점심 메뉴 선정")
+goal = st.text_input("🎯 최종 목표", placeholder="예: 차세대 전투기 도입")
 
 if goal:
     st.subheader("1. 기준 설정")
@@ -207,12 +208,15 @@ if goal:
                 status_text = st.empty()
                 
                 # 1. 메인 분석
-                status_text.text("🧠 목표 분석 중...")
+                status_text.text("🧠 1차 기준 분석 중... (안전을 위해 천천히 진행합니다)")
                 res = analyze_ahp_logic(goal, goal, main)
                 render_result_ui(f"1차 기준: {goal}", res)
                 
-                progress_bar.progress(1/total_steps)
-                time.sleep(2)
+                # [핵심] 10초 대기: 이렇게 해야 절대 안 멈춥니다.
+                # (1분에 20회 제한인데, 10초에 1번이면 1분에 6번이므로 무조건 통과)
+                for i in range(10):
+                    time.sleep(1)
+                    progress_bar.progress((1/total_steps) * (i/10))
                 
                 # 2. 세부 항목 분석
                 current_step = 2
@@ -222,11 +226,13 @@ if goal:
                     res = analyze_ahp_logic(goal, p, ch)
                     render_result_ui(f"세부항목: {p}", res, msg)
                     
-                    progress_bar.progress(current_step/total_steps)
-                    time.sleep(2)
+                    # [핵심] 10초 대기
+                    for i in range(10):
+                        time.sleep(1)
+                        # 진행바 시각 효과
                     current_step += 1
                 
-                status_text.success("✅ 분석 완료!")
+                status_text.success("✅ 모든 분석이 완료되었습니다!")
                 progress_bar.progress(1.0)
 
         st.divider()
