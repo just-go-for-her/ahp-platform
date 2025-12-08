@@ -101,9 +101,6 @@ def process_single_response(raw_json):
 
     final_rows = []
     
-    # [추가] 개인별 가중치를 한 줄로 펼치기 위한 딕셔너리
-    flat_personal_data = {} 
-    
     for group_name, pairs in groups.items():
         if group_name == main_group_name: continue
         
@@ -128,11 +125,8 @@ def process_single_response(raw_json):
                     "2차 가중치": s_weight,
                     "종합 가중치": final_weight
                 })
-                # 엑셀용 개인 데이터 저장 (예: "맛 > 매운맛")
-                col_name = f"{parent_name} > {s_item}"
-                flat_personal_data[col_name] = final_weight
 
-    return final_rows, max_cr, flat_personal_data
+    return final_rows, max_cr
 
 # --------------------------------------------------------------------------
 # 3. 메인 UI
@@ -166,16 +160,19 @@ if selected_file:
     
     if st.button("🧮 분석 실행 (리포트 생성)", type="primary"):
         
-        valid_data_rows = []    # 집단 분석용 (세로로 긴 데이터)
-        status_list = []        # 응답 현황용
-        personal_analysis_list = [] # 개인별 상세 분석용 (가로로 넓은 데이터)
+        # 1. 집단 분석용 (평균 내기 전 데이터)
+        valid_data_rows = []    
         
-        # 1. 반복문으로 분석 수행
+        # 2. 개인별 상세 분석용 (사이트 포맷 그대로 + 이름표)
+        individual_detail_rows = []
+        
+        # 3. 응답 현황용
+        status_list = []        
+        
+        # 분석 루프
         for idx, row in df.iterrows():
             try:
-                # 함수에서 3가지를 리턴받음 (결과행, CR, 개인별펼친데이터)
-                res_rows, person_cr, flat_data = process_single_response(row['Raw_Data'])
-                
+                res_rows, person_cr = process_single_response(row['Raw_Data'])
                 if res_rows is None: continue
 
                 is_valid = person_cr <= 0.1
@@ -189,24 +186,25 @@ if selected_file:
                 status_list.append(status)
                 
                 if is_valid:
+                    # 집단 분석용에는 순수 데이터만 (나중에 mean 할 것)
                     valid_data_rows.extend(res_rows)
                     
-                    # [핵심] 개인별 상세 데이터 만들기
-                    # 기본 정보(누가, 언제) + 계산된 가중치들
-                    personal_info = {
-                        "응답자": row.get('Respondent', '익명'),
-                        "작성시간": row['Time'],
-                        "일관성지수(CR)": round(person_cr, 4)
-                    }
-                    # 두 딕셔너리 합치기
-                    personal_info.update(flat_data)
-                    personal_analysis_list.append(personal_info)
+                    # [핵심] 개인별 데이터에는 '누가' 했는지 태그를 붙여서 저장
+                    for r in res_rows:
+                        # 기존 사이트 분석 포맷(r)에 사람 정보 추가
+                        personal_row = r.copy()
+                        personal_row['응답자'] = row.get('Respondent', '익명')
+                        personal_row['작성시간'] = row['Time']
+                        personal_row['CR'] = round(person_cr, 4)
+                        
+                        # 보기 좋게 컬럼 순서 정렬을 위해 딕셔너리 재구성 (나중에 DF에서 정렬)
+                        individual_detail_rows.append(personal_row)
                     
             except Exception as e:
                 continue 
 
         # -------------------------------------------------------
-        # [화면 출력]
+        # 화면 출력
         # -------------------------------------------------------
         
         # 1. 유효성 검사 표
@@ -219,7 +217,7 @@ if selected_file:
             valid_count = len(status_df[status_df['유효판정'] == 'O'])
             st.info(f"총 {len(status_df)}명 중 **{valid_count}명(O)**의 데이터로 분석합니다.")
         
-        # 2. 종합 순위 (집단)
+        # 2. 종합 순위 (집단 평균)
         if valid_data_rows:
             res_df = pd.DataFrame(valid_data_rows)
             final_df = res_df.groupby(['1차 기준', '2차 항목']).mean(numeric_only=True).reset_index()
@@ -233,26 +231,31 @@ if selected_file:
             st.dataframe(disp_df.style.background_gradient(subset=['종합 가중치'], cmap='Blues'), use_container_width=True)
 
             # -------------------------------------------------------
-            # [엑셀 다운로드] 시트 쪼개기 기술 적용
+            # [엑셀 다운로드] 사이트 분석 포맷 그대로 저장
             # -------------------------------------------------------
             st.divider()
             st.markdown("### 📥 상세 리포트 다운로드")
             
-            # 개인별 상세 데이터 프레임 생성
-            personal_df = pd.DataFrame(personal_analysis_list)
-            
+            # 개인별 상세 데이터 프레임 만들기
+            personal_df = pd.DataFrame(individual_detail_rows)
+            # 컬럼 순서 예쁘게 정리 (응답자 정보 -> 기준 정보 -> 점수)
+            cols = ['응답자', '작성시간', 'CR', '1차 기준', '1차 가중치', '2차 항목', '2차 가중치', '종합 가중치']
+            # 만약 데이터에 없는 컬럼이 있을 수 있으니 교집합으로 처리
+            valid_cols = [c for c in cols if c in personal_df.columns]
+            personal_df = personal_df[valid_cols]
+
             output = io.BytesIO()
             with pd.ExcelWriter(output, engine='openpyxl') as writer:
                 # 시트 1: 종합 순위 (집단)
                 disp_df.to_excel(writer, index=False, sheet_name='종합_순위_분석')
                 
-                # 시트 2: 개인별 상세 가중치 (누가, 언제, 무엇을 높게 줬나)
+                # 시트 2: 개인별 상세 결과 (사이트 분석 포맷)
                 personal_df.to_excel(writer, index=False, sheet_name='개인별_상세_결과')
                 
-                # 시트 3: 응답 현황 (CR 체크)
+                # 시트 3: 응답 현황
                 status_df.to_excel(writer, index=False, sheet_name='응답자_현황_및_CR')
                 
-                # 시트 4: 원본 (백업용)
+                # 시트 4: 원본
                 df.to_excel(writer, index=False, sheet_name='원본_RAW_데이터')
             
             st.download_button(
@@ -262,6 +265,10 @@ if selected_file:
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                 type="primary"
             )
+            
+            # (선택) 화면에서도 개인별 데이터를 살짝 보여줄까요?
+            with st.expander("🔍 개인별 상세 분석 데이터 미리보기"):
+                st.dataframe(personal_df)
             
         else:
             st.error("유효한 데이터가 없어 분석할 수 없습니다.")
