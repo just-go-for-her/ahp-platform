@@ -1,6 +1,7 @@
 import streamlit as st
 import google.generativeai as genai
 import re
+import time
 
 # --------------------------------------------------------------------------
 # 1. 페이지 설정
@@ -8,7 +9,7 @@ import re
 st.set_page_config(page_title="연구 설계 및 진단", page_icon="🧠", layout="wide")
 
 # --------------------------------------------------------------------------
-# 2. 인증 설정 (Secrets 우선)
+# 2. 인증 설정
 # --------------------------------------------------------------------------
 api_key = None
 if "GOOGLE_API_KEY" in st.secrets:
@@ -20,12 +21,11 @@ else:
 if api_key:
     try:
         genai.configure(api_key=api_key)
-        model = genai.GenerativeModel('gemini-2.5-flash')
     except:
         pass
 
 # --------------------------------------------------------------------------
-# 3. AI 분석 함수 (429 에러 방지 기능 탑재)
+# 3. AI 분석 함수 (제공된 리스트 기반 이어달리기)
 # --------------------------------------------------------------------------
 def analyze_ahp_logic(goal, parent, children):
     if not children:
@@ -50,50 +50,61 @@ def analyze_ahp_logic(goal, parent, children):
     [DETAIL] (상세 분석)
     """
     
-    try:
-        # AI에게 요청
-        response = model.generate_content(prompt)
-        text = response.text
-        
-        # 정규표현식 파싱
-        def extract(tag, t):
-            match = re.search(fr"\[{tag}\](.*?)(?=\[|$)", t, re.DOTALL)
-            return match.group(1).strip() if match else "내용 없음"
+    # [수정됨] 제공해주신 리스트 중 가장 효율적인 모델들로 구성
+    models_to_try = [
+        'gemini-2.5-flash',      # 1순위: 최신 고속 모델
+        'gemini-2.0-flash',      # 2순위: 안정적인 2.0 버전
+        'gemini-2.0-flash-lite'  # 3순위: 가장 가볍고 한도 높은 모델 (최후방어)
+    ]
+    
+    last_error = ""
 
-        data = {
-            "grade": extract("GRADE", text),
-            "summary": extract("SUMMARY", text),
-            "suggestion": extract("SUGGESTION", text),
-            "example": extract("EXAMPLE", text),
-            "detail": extract("DETAIL", text)
-        }
-        
-        # 파싱 실패 시 안전장치
-        if data["grade"] == "내용 없음": 
-            data["grade"] = "주의"
-            data["detail"] = text
-        return data
+    for model_name in models_to_try:
+        try:
+            # 모델 생성 및 요청
+            model = genai.GenerativeModel(model_name)
+            response = model.generate_content(prompt)
+            text = response.text
+            
+            # 정규표현식 파싱
+            def extract(tag, t):
+                match = re.search(fr"\[{tag}\](.*?)(?=\[|$)", t, re.DOTALL)
+                return match.group(1).strip() if match else "내용 없음"
 
-    except Exception as e:
-        # [핵심] 사용량 초과(429) 에러가 발생했을 때 부드럽게 대처
-        error_msg = str(e)
-        if "429" in error_msg or "Quota" in error_msg:
-            return {
-                "grade": "⏳ 대기 필요",
-                "summary": "AI 사용량이 일시적으로 많습니다.",
-                "suggestion": "약 1분 뒤에 다시 버튼을 눌러주세요.",
-                "example": "잠시 휴식",
-                "detail": f"구글 AI 무료 버전의 분당 사용 한도에 도달했습니다.\n(잠시만 기다렸다가 시도하면 정상 작동합니다.)\n\nError: {error_msg}"
+            data = {
+                "grade": extract("GRADE", text),
+                "summary": extract("SUMMARY", text),
+                "suggestion": extract("SUGGESTION", text),
+                "example": extract("EXAMPLE", text),
+                "detail": extract("DETAIL", text)
             }
-        
-        # 그 외 다른 에러
-        return {
-            "grade": "에러", 
-            "summary": "오류 발생",
-            "suggestion": "관리자 문의",
-            "example": "없음",
-            "detail": str(e)
-        }
+            
+            if data["grade"] == "내용 없음": 
+                data["grade"] = "주의"
+                data["detail"] = text
+            
+            # 성공 시 바로 반환
+            return data
+
+        except Exception as e:
+            error_msg = str(e)
+            last_error = error_msg
+            
+            # 429(Quota), 503(Service Unavailable) 에러 시 다음 모델로 이동
+            if "429" in error_msg or "Quota" in error_msg or "503" in error_msg:
+                time.sleep(0.5) # 아주 잠깐 대기
+                continue
+            else:
+                return {"grade": "에러", "detail": f"시스템 오류: {error_msg}"}
+
+    # 모든 모델 실패 시
+    return {
+        "grade": "⏳ 대기 필요",
+        "summary": "AI 사용량이 일시적으로 많습니다.",
+        "suggestion": "약 30초 뒤에 다시 시도해주세요.",
+        "example": "잠시 휴식",
+        "detail": f"사용 가능한 모든 모델(2.5 Flash, 2.0 Flash/Lite)이 응답하지 않습니다.\n잠시만 기다려주세요.\n(Last Error: {last_error})"
+    }
 
 # --------------------------------------------------------------------------
 # 4. UI 렌더링 함수
@@ -101,7 +112,6 @@ def analyze_ahp_logic(goal, parent, children):
 def render_result_ui(title, data, count_msg=""):
     grade = data.get('grade', '정보없음')
     
-    # 등급별 색상 설정
     if "위험" in grade or "에러" in grade: icon, color, bg = "🚨", "red", "#fee"
     elif "주의" in grade: icon, color, bg = "⚠️", "orange", "#fffae5"
     elif "양호" in grade: icon, color, bg = "✅", "green", "#eff"
@@ -117,11 +127,9 @@ def render_result_ui(title, data, count_msg=""):
         st.divider()
         st.markdown(f"**📋 요약:** {data.get('summary', '')}")
         
-        # 제안 메시지
         if "양호" in grade: st.success(f"💡 **제안:** {data.get('suggestion', '')}")
         else: st.warning(f"💡 **제안:** {data.get('suggestion', '')}")
         
-        # [✨ 추천 예시 박스]
         example_text = data.get('example', '')
         if len(example_text) > 2 and "없음" not in example_text:
             st.markdown(f"""
@@ -175,7 +183,8 @@ if goal:
         st.divider()
         # [AI 진단 버튼]
         if st.button("🚀 AI 진단 시작", type="primary"):
-            with st.spinner("AI가 분석 중..."):
+            # 로딩 메시지 업데이트
+            with st.spinner("🧠 AI (Gemini 2.5 & 2.0 Flash) 가 분석 중입니다..."):
                 res = analyze_ahp_logic(goal, goal, main_criteria)
                 render_result_ui(f"1차 기준: {goal}", res)
                 for p, c in structure_data.items():
@@ -184,7 +193,7 @@ if goal:
                     res = analyze_ahp_logic(goal, p, c)
                     render_result_ui(f"세부항목: {p}", res, msg)
 
-        # [데이터 전송 버튼] (번호 삭제됨)
+        # [데이터 전송 버튼]
         st.divider()
         st.markdown("### 📤 설문 생성 단계")
         st.caption("구조가 확정되었다면 아래 버튼을 눌러 설문 도구로 이동하세요.")
