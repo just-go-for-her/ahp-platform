@@ -7,7 +7,7 @@ import random
 # --------------------------------------------------------------------------
 # 1. 페이지 설정
 # --------------------------------------------------------------------------
-st.set_page_config(page_title="AHP 연구 설계 진단", page_icon="⚖️", layout="wide")
+st.set_page_config(page_title="연구 설계 및 진단", page_icon="🧠", layout="wide")
 
 # --------------------------------------------------------------------------
 # 2. 인증 설정 (Secrets 우선 -> 사이드바 입력)
@@ -21,75 +21,65 @@ elif "GOOGLE_API_KEY" in st.secrets:
 
 if not API_KEYS:
     with st.sidebar:
-        st.header("🔑 API Key 입력")
-        user_input = st.text_area("API Key 목록 (한 줄에 하나씩)", type="password", height=100)
+        st.header("🔑 API 키 입력")
+        user_input = st.text_area("API Key 목록 (줄바꿈 구분)", type="password", height=100)
         if user_input:
             API_KEYS = [k.strip() for k in user_input.replace(',', '\n').split('\n') if k.strip()]
 
 # --------------------------------------------------------------------------
-# 3. AI 분석 함수 (한국형 전문가 보고서 스타일)
+# 3. AI 분석 함수 (동적 페르소나 적용)
 # --------------------------------------------------------------------------
 def analyze_ahp_logic(goal, parent, children):
     if not children:
-        return {
-            "grade": "N/A", "summary": "하위 평가 요소 미정의", 
-            "suggestion": "평가 목적에 부합하는 하위 요소를 구성하십시오.", "example": "", "detail": ""
-        }
+        return {"grade": "정보없음", "summary": "하위 항목 없음", "suggestion": "", "example": "", "detail": ""}
     
     if not API_KEYS:
-        return {
-            "grade": "인증실패", "summary": "API 키가 확인되지 않습니다.",
-            "suggestion": "설정에서 API 키를 입력하십시오.", "example": "", "detail": ""
-        }
+        return {"grade": "키 없음", "summary": "API 키가 없습니다.", "suggestion": "", "example": "", "detail": ""}
     
-    # [상황 인식] 1차 기준 vs 2차 세부항목
-    is_main_criteria = (goal == parent)
-    
-    if is_main_criteria:
-        context_guide = """
-        - 현재 분석 대상: 최상위 목표 달성을 위한 '핵심 성공 요인(CSF)' 또는 '1차 평가 기준'.
-        - 진단 초점: 전략적 중요도와 평가 영역의 포괄성(Comprehensiveness).
-        """
-    else:
-        context_guide = f"""
-        - 현재 분석 대상: 상위 기준 '{parent}'를 측정하기 위한 '세부 측정 지표'.
-        - 진단 초점: 상위 기준과의 논리적 연계성(Alignment) 및 측정 가능성.
-        """
-
-    # [핵심] 한국어 전문가 프롬프트
+    # [핵심] 목표에 따라 AI의 말투와 기준을 바꾸는 프롬프트
     prompt = f"""
-    [역할] AHP 연구 방법론 전문 컨설턴트
-    [분석 대상] 
-    - 목표: {goal}
-    - 상위 기준: {parent}
+    [분석 대상]
+    - 최종 목표: {goal}
+    - 현재 기준: {parent}
     - 하위 항목: {children}
     
-    [지침]
-    1. **언어:** 반드시 **한국어(Korean)**로 작성하라.
-    2. **톤앤매너:** 객관적이고 냉철한 '분석 보고서' 스타일 (예: ~함, ~가 식별됨).
-    3. **핵심 위주:** 장황한 설명 대신, 문제의 **'원인'과 '개선 방향'**을 명사형으로 간결하게 제시하라.
+    [지침: 페르소나 설정]
+    1. 먼저 '{goal}'의 성격을 분석하라.
+       - **전문적/학술적/비즈니스 주제**라면: '냉철한 전문 컨설턴트' 톤으로 분석하라. 전문 용어(MECE, 위계성 등)를 적절히 사용하고 엄격하게 평가하라.
+       - **일상/취미/가벼운 주제**라면: '친절한 멘토' 톤으로 분석하라. 쉬운 용어를 사용하고 격려하는 어조로 평가하라.
     
-    {context_guide}
+    2. 공통 지침
+       - 답변은 **한국어**로 간결하게 작성하라.
+       - [EXAMPLE]은 설명 없이 **추천 항목 명사**만 3~4개 나열하라.
+       - 불필요한 서론/결론을 빼고 핵심만 출력하라.
     
     [출력 포맷]
     [GRADE] 적합/보완필요/부적합 (중 택 1)
-    [SUMMARY] (구조적 정합성에 대한 1줄 요약)
-    [SUGGESTION] (최적화를 위한 전략적 제언 1문장)
+    [SUMMARY] (주제 성격에 맞는 톤으로 1문장 요약)
+    [SUGGESTION] (가장 필요한 수정 사항 1문장)
     [EXAMPLE]
-    - 표준 지표 1 (선정 근거)
-    - 표준 지표 2 (선정 근거)
+    - 항목1
+    - 항목2
+    - 항목3
     [DETAIL]
-    1. 구성의 완결성(MECE): (중복/누락 여부 핵심 진단)
-    2. 위계의 적합성: (항목 레벨 및 분류 적절성 진단)
-    3. 개념의 명확성: (용어의 조작적 정의 및 직관성 진단)
+    1. 구성(MECE): (핵심 진단)
+    2. 위계 적절성: (핵심 진단)
+    3. 용어 명확성: (핵심 진단)
     """
     
-    # 키 & 모델 로테이션
-    models = ['gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-2.0-flash-lite']
+    # [수정] 작성자님 리스트에 있는 모델 중 'Lite'와 'Flash' 위주로 구성
+    # Lite가 가장 가벼워서 무료 티어 방어에 유리합니다.
+    models = [
+        'gemini-2.0-flash-lite',       # 1순위: 리스트에 있는 경량 모델
+        'gemini-2.0-flash',            # 2순위: 표준 모델
+        'gemini-2.5-flash'             # 3순위: 최신 모델
+    ]
+    
     attempts = []
     for key in API_KEYS:
         for model in models:
             attempts.append((key, model))
+    
     random.shuffle(attempts)
 
     for i, (key, model_name) in enumerate(attempts):
@@ -99,7 +89,6 @@ def analyze_ahp_logic(goal, parent, children):
             response = model.generate_content(prompt)
             text = response.text
             
-            # 파싱 로직
             def extract(tag, t):
                 match = re.search(fr"\[\s*{tag}\s*\](.*?)(?=\[\s*[A-Z]+\s*\]|$)", t, re.DOTALL | re.IGNORECASE)
                 if match:
@@ -115,62 +104,50 @@ def analyze_ahp_logic(goal, parent, children):
             }
 
         except Exception as e:
+            # 에러 시 짧게 대기 후 재시도
             if any(err in str(e) for err in ["429", "Quota", "503"]):
-                time.sleep(0.3)
+                time.sleep(0.5)
                 continue
-            return {"grade": "Error", "detail": f"System Error: {str(e)}", "summary": "Analysis Failed", "example": ""}
+            return {"grade": "에러", "detail": str(e), "summary": "오류 발생", "example": ""}
 
-    return {"grade": "대기", "summary": "API Quota Exceeded", "detail": "Please try again later.", "example": ""}
+    return {"grade": "대기", "summary": "사용량 초과 (잠시 후 시도)", "detail": "모든 API 키가 바쁩니다.", "example": ""}
 
 # --------------------------------------------------------------------------
-# 4. UI 렌더링 함수 (전문가 보고서 디자인)
+# 4. UI 렌더링 함수
 # --------------------------------------------------------------------------
 def render_result_ui(title, data, count_msg=""):
-    grade = data.get('grade', '-').replace("[", "").replace("]", "").strip()
+    grade = data.get('grade', '정보없음').replace("[", "").replace("]", "").strip()
     
-    # 등급 매핑
-    if "적합" in grade or "Optimal" in grade: 
-        icon, color, bg = "✅", "green", "#f0fff4"
-        display_grade = "적합 (Optimal)"
-    elif "보완" in grade or "Improvement" in grade: 
-        icon, color, bg = "⚠️", "orange", "#fffcf5"
-        display_grade = "보완 필요 (Needs Improvement)"
-    elif "부적합" in grade or "Critical" in grade: 
-        icon, color, bg = "🚨", "red", "#fff5f5"
-        display_grade = "부적합 (Critical Issue)"
-    else: 
-        icon, color, bg = "❓", "gray", "#f8f9fa"
-        display_grade = "분석 불가"
+    if "적합" in grade: icon, color, bg = "✅", "green", "#f0fff4"
+    elif "보완" in grade: icon, color, bg = "⚠️", "orange", "#fffcf5"
+    elif "부적합" in grade: icon, color, bg = "🚨", "red", "#fff5f5"
+    else: icon, color, bg = "❓", "gray", "#f8f9fa"
 
     with st.container(border=True):
-        # 헤더
-        c1, c2 = st.columns([0.7, 0.3])
+        c1, c2 = st.columns([0.8, 0.2])
         c1.markdown(f"#### {icon} {title}")
-        c2.markdown(f"<div style='color:{color}; font-weight:bold; text-align:right; font-family:sans-serif;'>{display_grade}</div>", unsafe_allow_html=True)
+        c2.markdown(f"<div style='color:{color}; font-weight:bold; text-align:right;'>{grade}</div>", unsafe_allow_html=True)
         
         if count_msg: st.caption(f":red[{count_msg}]")
         st.divider()
         
-        # 1. 진단 요약
-        st.markdown(f"**📊 구조적 정합성 진단 요약**")
-        st.write(data.get('summary', '-'))
+        # 요약 & 제안
+        st.write(f"**📋 진단 요약:** {data.get('summary', '-')}")
+        st.info(f"💡 **제안:** {data.get('suggestion', '-')}")
         
-        # 2. 전략적 제언
-        st.info(f"💡 **전문가의 전략적 제언:** {data.get('suggestion', '-')}")
-        
-        # 3. 표준 지표 제언
+        # 모범 답안
         ex = data.get('example', '')
         if len(ex) > 2:
             st.markdown(f"""
-            <div style="background:{bg}; padding:15px; border-radius:4px; border-left:4px solid {color}; margin-top:10px;">
-                <div style="font-weight:bold; color:#444; margin-bottom:5px; font-size:0.9em;">🧬 표준화된 평가 지표 제언 (Standard Criteria)</div>
-                <div style="white-space: pre-line; color:#333; font-size:0.95em;">{ex}</div>
+            <div style="background:{bg}; padding:15px; border-radius:5px; border-left:4px solid {color}; margin-top:10px;">
+                <div style="font-weight:bold; color:#555; margin-bottom:5px;">✨ AI 추천 항목</div>
+                <div style="white-space: pre-line; color:#333;">{ex}</div>
             </div>
             """, unsafe_allow_html=True)
         
-        # 4. 상세 분석 (핵심 관점 3가지)
-        with st.expander("🔍 상세 진단 결과 (MECE / 위계 / 정의)"):
-            st.markdown(data.get('detail', '-'))
+        # 상세 분석
+        with st.expander("🔍 상세 분석 보기"):
+            st.write(data.get('detail', '-'))
 
 # --------------------------------------------------------------------------
 # 5. 메인 로직
@@ -178,18 +155,18 @@ def render_result_ui(title, data, count_msg=""):
 if 'main_count' not in st.session_state: st.session_state.main_count = 1 
 if 'sub_counts' not in st.session_state: st.session_state.sub_counts = {}
 
-st.title("⚖️ 연구 설계 및 구조 진단")
+st.title("1️⃣ 연구 설계 및 AI 진단")
 
 if API_KEYS:
-    st.caption(f"🔒 **Secure Analysis Mode:** {len(API_KEYS)} API Keys Active")
+    st.caption(f"🔒 API 키 {len(API_KEYS)}개 연동됨")
 
-goal = st.text_input("🎯 Decision Goal (최종 의사결정 목표)", placeholder="예: 차세대 주력 전차(MBT) 기종 선정")
+goal = st.text_input("🎯 최종 목표", placeholder="예: 차세대 전투기 도입 (전문적) / 점심 메뉴 선정 (가벼움)")
 
 if goal:
-    st.subheader("1. 1차 평가 기준 설정 (Main Criteria)")
+    st.subheader("1. 기준 설정")
     main = []
     for i in range(st.session_state.main_count):
-        val = st.text_input(f"Criterion {i+1}", key=f"main_{i}")
+        val = st.text_input(f"기준 {i+1}", key=f"main_{i}")
         if val: main.append(val)
     if st.button("➕ 기준 추가"): 
         st.session_state.main_count += 1
@@ -198,40 +175,59 @@ if goal:
     struct = {}
     if main:
         st.divider()
-        st.subheader("2. 세부 측정 지표 구성 (Sub-criteria)")
+        st.subheader("2. 세부 항목")
         for c in main:
-            with st.expander(f"📂 '{c}' 세부 지표 설정", expanded=True):
+            with st.expander(f"📂 '{c}' 하위 요소", expanded=True):
                 if c not in st.session_state.sub_counts: st.session_state.sub_counts[c]=1
                 subs = []
                 for j in range(st.session_state.sub_counts[c]):
-                    v = st.text_input(f"ㄴ Sub-factor {j+1}", key=f"sub_{c}_{j}")
+                    v = st.text_input(f"ㄴ {c}-{j+1}", key=f"sub_{c}_{j}")
                     if v: subs.append(v)
-                if st.button("➕ 지표 추가", key=f"btn_{c}"):
+                if st.button("➕ 추가", key=f"btn_{c}"):
                     st.session_state.sub_counts[c]+=1
                     st.rerun()
                 struct[c] = subs
 
         st.divider()
-        if st.button("🚀 구조 정합성 진단 실행", type="primary"):
+        if st.button("🚀 AI 진단 시작", type="primary"):
             if not API_KEYS:
-                st.error("API 키가 없습니다.")
+                st.error("API 키가 없습니다!")
             else:
-                with st.spinner("🔄 전문 컨설팅 알고리즘이 분석 중입니다..."):
-                    # 1. 메인 분석
-                    res = analyze_ahp_logic(goal, goal, main)
-                    render_result_ui(f"Level 1: {goal}", res)
+                # 안전한 실행을 위한 진행바 및 딜레이
+                total_steps = 1 + len(struct)
+                progress_bar = st.progress(0)
+                status_text = st.empty()
+                
+                # 1. 메인 분석
+                status_text.text("🧠 목표 분석 중...")
+                res = analyze_ahp_logic(goal, goal, main)
+                render_result_ui(f"1차 기준: {goal}", res)
+                
+                # 강제 휴식 (2초)
+                progress_bar.progress(1/total_steps)
+                time.sleep(2)
+                
+                # 2. 세부 항목 분석
+                current_step = 2
+                for p, ch in struct.items():
+                    status_text.text(f"🧠 '{p}' 분석 중...")
+                    msg = "⚠️ 항목 과다" if len(ch) >= 8 else ""
+                    res = analyze_ahp_logic(goal, p, ch)
+                    render_result_ui(f"세부항목: {p}", res, msg)
                     
-                    # 2. 세부 항목 분석
-                    for p, ch in struct.items():
-                        msg = "⚠️ 지표 과다 (인지 부하 위험)" if len(ch) >= 8 else ""
-                        res = analyze_ahp_logic(goal, p, ch)
-                        render_result_ui(f"Level 2: {p}", res, msg)
+                    # 강제 휴식 (2초)
+                    progress_bar.progress(current_step/total_steps)
+                    time.sleep(2)
+                    current_step += 1
+                
+                status_text.text("✅ 분석 완료!")
+                progress_bar.progress(1.0)
 
         st.divider()
-        if st.button("💾 연구 모형 확정 및 설문 생성"):
+        if st.button("💾 구조 확정 및 설문 배포하러 가기"):
             st.session_state['passed_structure'] = {
                 "goal": goal,
                 "main_criteria": main,
                 "sub_criteria": struct
             }
-            st.success("✅ 연구 모형이 확정되었습니다. [2_설문_진행] 메뉴로 이동하십시오.")
+            st.success("✅ 구조가 저장되었습니다! [2_설문_진행] 메뉴로 이동하세요.")
