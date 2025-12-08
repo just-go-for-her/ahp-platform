@@ -28,10 +28,10 @@ if not API_KEYS:
             API_KEYS = [k.strip() for k in user_input.replace(',', '\n').split('\n') if k.strip()]
 
 # --------------------------------------------------------------------------
-# 3. AI 분석 함수 (모델 5종 + 속도 조절)
+# 3. AI 분석 함수 (5대 모델 부하 분산)
 # --------------------------------------------------------------------------
 def analyze_ahp_logic(goal, parent, children):
-    # 에러 방지용 기본값
+    # 기본 에러 반환값
     empty_res = {"grade": "오류", "summary": "분석 실패", "suggestion": "잠시 후 시도", "example": "", "detail": "API 호출량 초과"}
 
     if not children:
@@ -44,13 +44,13 @@ def analyze_ahp_logic(goal, parent, children):
     is_main = (goal == parent)
     scope_guide = "1차 평가 기준의 균형성(MECE)을 중심으로 진단." if is_main else f"상위 기준 '{parent}'의 하위 세부 항목 적절성만 진단(다른 기준 언급 금지)."
 
-    # [전략] 5개 모델 총동원 (Lite 우선)
+    # [전략] 작성자님 리스트에 있는 '정확한 모델명' 5종 탑재
     models = [
-        'gemini-2.5-flash-lite', 
-        'gemini-2.0-flash-lite', 
-        'gemini-2.5-flash', 
-        'gemini-2.0-flash', 
-        'gemini-2.0-pro-exp-02-05'
+        'gemini-2.5-flash-lite',                # 1. 최신 경량 (빠름)
+        'gemini-2.0-flash-lite-preview-02-05', # 2. 2.0 경량 (안정적)
+        'gemini-2.5-flash',                     # 3. 최신 표준 (메인)
+        'gemini-2.0-flash',                     # 4. 2.0 표준 (범용)
+        'gemini-2.0-pro-exp-02-05'              # 5. 프로 (고성능)
     ]
     
     prompt = f"""
@@ -60,11 +60,11 @@ def analyze_ahp_logic(goal, parent, children):
     - 하위: {children}
     
     [지침 1: 태도]
-    - 주제가 전문적이면 '냉철한 컨설턴트', 일상적이면 '친절한 멘토' 톤으로 작성.
+    - 주제가 전문적이면 '냉철한 컨설턴트', 일상적이면 '친절한 멘토' 톤.
     - {scope_guide}
     
     [지침 2: 형식]
-    - **한국어**로 작성.
+    - **한국어** 작성.
     - **특수문자(**, *) 사용 금지.**
     - [EXAMPLE]은 설명 없이 **추천 항목 명사**만 나열.
     
@@ -82,14 +82,16 @@ def analyze_ahp_logic(goal, parent, children):
     3. 용어: (내용)
     """
     
+    # [핵심] 키와 모델의 모든 조합을 생성 (예: 키 3개 x 모델 5개 = 15개 조합)
     attempts = []
-    # 키가 3개면 15번 시도
     for key in API_KEYS:
         for model in models:
             attempts.append((key, model))
     
-    # [중요] 키 순서는 섞고, 모델은 Lite부터 쓰도록 정렬
-    # (복잡하면 그냥 순차 실행이 답입니다)
+    # [부하 분산] 순서를 뒤섞어서 5개 모델이 골고루 사용되게 함
+    random.shuffle(attempts)
+    
+    last_error = ""
     
     for i, (key, model_name) in enumerate(attempts):
         try:
@@ -115,11 +117,12 @@ def analyze_ahp_logic(goal, parent, children):
             }
 
         except Exception as e:
-            # 에러 나면 1초 쉬고 다음 모델로
-            time.sleep(1)
+            # 에러 발생 시 아주 잠깐만 쉬고 바로 다음 타자(다른 모델/키)로 넘김
+            time.sleep(0.5)
+            last_error = str(e)
             continue
 
-    return {**empty_res, "detail": "모든 모델이 응답하지 않습니다. (사용량 초과)"}
+    return {**empty_res, "detail": f"모든 모델 응답 실패. (Last Error: {last_error})"}
 
 # --------------------------------------------------------------------------
 # 4. UI 렌더링 함수
@@ -168,7 +171,7 @@ if 'sub_counts' not in st.session_state: st.session_state.sub_counts = {}
 st.title("1️⃣ 연구 설계 및 AI 진단")
 
 if API_KEYS:
-    st.caption(f"🔒 API 키 {len(API_KEYS)}개 연동됨 (안전 모드)")
+    st.caption(f"🔒 API 키 {len(API_KEYS)}개 연동됨 (5종 모델 랜덤 로테이션)")
 
 goal = st.text_input("🎯 최종 목표", placeholder="예: 차세대 전투기 도입")
 
@@ -208,12 +211,11 @@ if goal:
                 status_text = st.empty()
                 
                 # 1. 메인 분석
-                status_text.text("🧠 1차 기준 분석 중... (안전을 위해 천천히 진행합니다)")
+                status_text.text("🧠 1차 기준 분석 중... (안전 모드)")
                 res = analyze_ahp_logic(goal, goal, main)
                 render_result_ui(f"1차 기준: {goal}", res)
                 
-                # [핵심] 10초 대기: 이렇게 해야 절대 안 멈춥니다.
-                # (1분에 20회 제한인데, 10초에 1번이면 1분에 6번이므로 무조건 통과)
+                # [핵심] 10초 대기 (이건 유지하는 게 좋습니다. 안전제일!)
                 for i in range(10):
                     time.sleep(1)
                     progress_bar.progress((1/total_steps) * (i/10))
@@ -226,10 +228,10 @@ if goal:
                     res = analyze_ahp_logic(goal, p, ch)
                     render_result_ui(f"세부항목: {p}", res, msg)
                     
-                    # [핵심] 10초 대기
+                    # 10초 대기
                     for i in range(10):
                         time.sleep(1)
-                        # 진행바 시각 효과
+                    
                     current_step += 1
                 
                 status_text.success("✅ 모든 분석이 완료되었습니다!")
