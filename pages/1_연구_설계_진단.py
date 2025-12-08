@@ -22,17 +22,16 @@ elif "GOOGLE_API_KEY" in st.secrets:
 if not API_KEYS:
     with st.sidebar:
         st.header("🔑 API 키 입력")
-        st.info("키가 여러 개면 줄바꿈으로 입력하세요.")
-        user_input = st.text_area("API Key 목록", type="password", height=150)
+        user_input = st.text_area("API Key 목록 (줄바꿈 구분)", type="password", height=150)
         if user_input:
             API_KEYS = [k.strip() for k in user_input.replace(',', '\n').split('\n') if k.strip()]
 
 # --------------------------------------------------------------------------
-# 3. AI 분석 함수 (5대 모델 부하 분산)
+# 3. AI 분석 함수 (생존 전략: 살아있는 모델 우선 사용)
 # --------------------------------------------------------------------------
 def analyze_ahp_logic(goal, parent, children):
-    # 기본 에러 반환값
-    empty_res = {"grade": "오류", "summary": "분석 실패", "suggestion": "잠시 후 시도", "example": "", "detail": "API 호출량 초과"}
+    # 에러 기본값
+    empty_res = {"grade": "오류", "summary": "분석 실패", "suggestion": "잠시 후 시도", "example": "", "detail": ""}
 
     if not children:
         return {**empty_res, "grade": "정보없음", "summary": "하위 항목 없음"}
@@ -44,13 +43,15 @@ def analyze_ahp_logic(goal, parent, children):
     is_main = (goal == parent)
     scope_guide = "1차 평가 기준의 균형성(MECE)을 중심으로 진단." if is_main else f"상위 기준 '{parent}'의 하위 세부 항목 적절성만 진단(다른 기준 언급 금지)."
 
-    # [전략] 작성자님 리스트에 있는 '정확한 모델명' 5종 탑재
+    # [핵심 전략] 
+    # 1. 에러가 났던 '2.0-flash'는 맨 뒤로 뺍니다.
+    # 2. 사용량이 0인 '2.5-flash-lite'를 1순위로 올립니다.
     models = [
-        'gemini-2.5-flash-lite',                # 1. 최신 경량 (빠름)
-        'gemini-2.0-flash-lite-preview-02-05', # 2. 2.0 경량 (안정적)
-        'gemini-2.5-flash',                     # 3. 최신 표준 (메인)
-        'gemini-2.0-flash',                     # 4. 2.0 표준 (범용)
-        'gemini-2.0-pro-exp-02-05'              # 5. 프로 (고성능)
+        'gemini-2.5-flash-lite',                # 1순위: 가장 쌩쌩함 (강추)
+        'gemini-2.0-flash-lite-preview-02-05', # 2순위: 그 다음으로 가벼움
+        'gemini-2.5-flash',                     # 3순위: 성능 좋음
+        'gemini-2.0-pro-exp-02-05',             # 4순위: 고성능
+        'gemini-2.0-flash'                      # 5순위: (현재 한도 초과 의심됨 -> 맨 뒤로)
     ]
     
     prompt = f"""
@@ -82,14 +83,15 @@ def analyze_ahp_logic(goal, parent, children):
     3. 용어: (내용)
     """
     
-    # [핵심] 키와 모델의 모든 조합을 생성 (예: 키 3개 x 모델 5개 = 15개 조합)
     attempts = []
+    # (키 개수 x 모델 5개) 조합 생성
     for key in API_KEYS:
         for model in models:
             attempts.append((key, model))
     
-    # [부하 분산] 순서를 뒤섞어서 5개 모델이 골고루 사용되게 함
-    random.shuffle(attempts)
+    # [전략 수정] 랜덤 셔플을 뺍니다.
+    # 이유: 지금은 '2.5-flash-lite'가 확실히 살아있으므로, 얘부터 무조건 먼저 시키는 게 유리합니다.
+    # random.shuffle(attempts) 
     
     last_error = ""
     
@@ -108,6 +110,7 @@ def analyze_ahp_logic(goal, parent, children):
                     return re.sub(r"^[\s\:\-]]+|[\s\]\:\-]+$", "", c).strip()
                 return "-"
 
+            # 성공하면 바로 리턴 (루프 종료)
             return {
                 "grade": extract("GRADE", text),
                 "summary": extract("SUMMARY", text),
@@ -117,12 +120,20 @@ def analyze_ahp_logic(goal, parent, children):
             }
 
         except Exception as e:
-            # 에러 발생 시 아주 잠깐만 쉬고 바로 다음 타자(다른 모델/키)로 넘김
+            # 에러 발생 시 로그만 찍고, '즉시' 다음 모델로 넘어감 (Sleep 최소화)
+            error_msg = str(e)
+            last_error = error_msg
+            
+            # 429(한도초과)면 가차 없이 다음 타자 등판
+            if "429" in error_msg or "Quota" in error_msg:
+                # print(f"Pass: {model_name} (Quota Exceeded)") # 디버깅용
+                continue 
+            
+            # 다른 에러면 잠깐 숨 고르고 이동
             time.sleep(0.5)
-            last_error = str(e)
             continue
 
-    return {**empty_res, "detail": f"모든 모델 응답 실패. (Last Error: {last_error})"}
+    return {**empty_res, "detail": f"모든 모델이 한도 초과입니다. 새 API 키가 필요합니다.\n(Last: {last_error})"}
 
 # --------------------------------------------------------------------------
 # 4. UI 렌더링 함수
@@ -163,7 +174,7 @@ def render_result_ui(title, data, count_msg=""):
             st.write(data.get('detail', '-'))
 
 # --------------------------------------------------------------------------
-# 5. 메인 로직 (안전 속도: 10초 대기)
+# 5. 메인 로직
 # --------------------------------------------------------------------------
 if 'main_count' not in st.session_state: st.session_state.main_count = 1 
 if 'sub_counts' not in st.session_state: st.session_state.sub_counts = {}
@@ -171,7 +182,7 @@ if 'sub_counts' not in st.session_state: st.session_state.sub_counts = {}
 st.title("1️⃣ 연구 설계 및 AI 진단")
 
 if API_KEYS:
-    st.caption(f"🔒 API 키 {len(API_KEYS)}개 연동됨 (5종 모델 랜덤 로테이션)")
+    st.caption(f"🔒 API 키 {len(API_KEYS)}개 연동됨 (생존 모델 우선 사용)")
 
 goal = st.text_input("🎯 최종 목표", placeholder="예: 차세대 전투기 도입")
 
@@ -211,14 +222,14 @@ if goal:
                 status_text = st.empty()
                 
                 # 1. 메인 분석
-                status_text.text("🧠 1차 기준 분석 중... (안전 모드)")
+                status_text.text("🧠 1차 기준 분석 중... (Lite 모델 가동)")
                 res = analyze_ahp_logic(goal, goal, main)
                 render_result_ui(f"1차 기준: {goal}", res)
                 
-                # [핵심] 10초 대기 (이건 유지하는 게 좋습니다. 안전제일!)
-                for i in range(10):
+                # 안전 대기 (Lite 모델은 분당 10-15회 가능하므로 5초면 충분)
+                for i in range(5):
                     time.sleep(1)
-                    progress_bar.progress((1/total_steps) * (i/10))
+                    progress_bar.progress((1/total_steps) * (i/5))
                 
                 # 2. 세부 항목 분석
                 current_step = 2
@@ -228,8 +239,8 @@ if goal:
                     res = analyze_ahp_logic(goal, p, ch)
                     render_result_ui(f"세부항목: {p}", res, msg)
                     
-                    # 10초 대기
-                    for i in range(10):
+                    # 안전 대기 5초
+                    for i in range(5):
                         time.sleep(1)
                     
                     current_step += 1
