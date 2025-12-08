@@ -1,10 +1,15 @@
-fimport streamlit as st
+import streamlit as st
 import google.generativeai as genai
 import re
 
+# --------------------------------------------------------------------------
+# 1. 페이지 설정
+# --------------------------------------------------------------------------
 st.set_page_config(page_title="연구 설계 및 진단", page_icon="🧠", layout="wide")
 
-# 1. 인증
+# --------------------------------------------------------------------------
+# 2. 인증 설정 (Secrets 우선)
+# --------------------------------------------------------------------------
 api_key = None
 if "GOOGLE_API_KEY" in st.secrets:
     api_key = st.secrets["GOOGLE_API_KEY"]
@@ -19,11 +24,15 @@ if api_key:
     except:
         pass
 
-# 2. AI 분석 함수 (에러 핸들링 강화)
+# --------------------------------------------------------------------------
+# 3. AI 분석 함수 (429 에러 방지 기능 탑재)
 # --------------------------------------------------------------------------
 def analyze_ahp_logic(goal, parent, children):
     if not children:
-        return {"grade": "정보없음", "summary": "하위 항목 없음", "suggestion": "항목 추가 필요", "example": "추천 없음", "detail": "데이터 없음"}
+        return {
+            "grade": "정보없음", "summary": "하위 항목 없음", 
+            "suggestion": "항목 추가 필요", "example": "추천 없음", "detail": "데이터 없음"
+        }
     
     prompt = f"""
     [역할] AHP 구조 진단 컨설턴트
@@ -58,6 +67,8 @@ def analyze_ahp_logic(goal, parent, children):
             "example": extract("EXAMPLE", text),
             "detail": extract("DETAIL", text)
         }
+        
+        # 파싱 실패 시 안전장치
         if data["grade"] == "내용 없음": 
             data["grade"] = "주의"
             data["detail"] = text
@@ -78,46 +89,62 @@ def analyze_ahp_logic(goal, parent, children):
         # 그 외 다른 에러
         return {
             "grade": "에러", 
-            "summary": "알 수 없는 오류 발생",
-            "suggestion": "관리자에게 문의하세요.",
+            "summary": "오류 발생",
+            "suggestion": "관리자 문의",
             "example": "없음",
             "detail": str(e)
         }
-# 3. UI 렌더링
-def render_result_ui(title, data):
+
+# --------------------------------------------------------------------------
+# 4. UI 렌더링 함수
+# --------------------------------------------------------------------------
+def render_result_ui(title, data, count_msg=""):
     grade = data.get('grade', '정보없음')
-    if "위험" in grade: icon, color, bg = "🚨", "red", "#fee"
+    
+    # 등급별 색상 설정
+    if "위험" in grade or "에러" in grade: icon, color, bg = "🚨", "red", "#fee"
     elif "주의" in grade: icon, color, bg = "⚠️", "orange", "#fffae5"
     elif "양호" in grade: icon, color, bg = "✅", "green", "#eff"
+    elif "대기" in grade: icon, color, bg = "⏳", "blue", "#e7f5ff"
     else: icon, color, bg = "❓", "gray", "#eee"
 
     with st.container(border=True):
         c1, c2 = st.columns([3, 1])
         c1.markdown(f"#### {icon} {title}")
         c2.markdown(f"**등급: :{color}[{grade}]**")
+        
+        if count_msg: st.caption(f":red[{count_msg}]")
         st.divider()
         st.markdown(f"**📋 요약:** {data.get('summary', '')}")
+        
+        # 제안 메시지
         if "양호" in grade: st.success(f"💡 **제안:** {data.get('suggestion', '')}")
         else: st.warning(f"💡 **제안:** {data.get('suggestion', '')}")
         
-        ex_text = data.get('example', '')
-        if len(ex_text) > 2 and "없음" not in ex_text:
+        # [✨ 추천 예시 박스]
+        example_text = data.get('example', '')
+        if len(example_text) > 2 and "없음" not in example_text:
             st.markdown(f"""
             <div style="background-color: {bg}; padding: 15px; border-radius: 10px; margin: 10px 0; border: 1px solid {color};">
                 <strong style="color: {color};">✨ AI 추천 모범 답안</strong>
-                <div style="margin-top: 5px; font-size: 0.95em; white-space: pre-line;">{ex_text}</div>
-            </div>""", unsafe_allow_html=True)
+                <div style="margin-top: 5px; font-size: 0.95em; white-space: pre-line;">
+                    {example_text}
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
             
         with st.expander("🔍 상세 분석 보기"):
             st.write(data.get('detail', ''))
 
-# 4. 메인 로직
+# --------------------------------------------------------------------------
+# 5. 메인 로직
+# --------------------------------------------------------------------------
 if 'main_count' not in st.session_state: st.session_state.main_count = 1 
 if 'sub_counts' not in st.session_state: st.session_state.sub_counts = {}
 
 st.title("1️⃣ 연구 설계 및 AI 진단")
 
-goal = st.text_input("🎯 최종 목표", placeholder="예: 차세대 드론 방어 체계")
+goal = st.text_input("🎯 최종 목표", placeholder="예: 차세대 전투기 도입")
 
 if goal:
     st.subheader("1. 기준 설정 (1차)")
@@ -146,17 +173,18 @@ if goal:
                 structure_data[criterion] = sub_items
 
         st.divider()
+        # [AI 진단 버튼]
         if st.button("🚀 AI 진단 시작", type="primary"):
             with st.spinner("AI가 분석 중..."):
                 res = analyze_ahp_logic(goal, goal, main_criteria)
                 render_result_ui(f"1차 기준: {goal}", res)
                 for p, c in structure_data.items():
+                    msg = ""
+                    if len(c) >= 8: msg = f"⚠️ 항목 과다 (7개 이하 권장)"
                     res = analyze_ahp_logic(goal, p, c)
-                    render_result_ui(f"세부항목: {p}", res)
+                    render_result_ui(f"세부항목: {p}", res, msg)
 
-        # ------------------------------------------------------------------
-        # [수정됨] 번호 삭제하고 깔끔하게 버튼만 배치
-        # ------------------------------------------------------------------
+        # [데이터 전송 버튼] (번호 삭제됨)
         st.divider()
         st.markdown("### 📤 설문 생성 단계")
         st.caption("구조가 확정되었다면 아래 버튼을 눌러 설문 도구로 이동하세요.")
