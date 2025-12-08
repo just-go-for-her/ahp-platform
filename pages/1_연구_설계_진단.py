@@ -10,7 +10,7 @@ import random
 st.set_page_config(page_title="연구 설계 및 진단", page_icon="🧠", layout="wide")
 
 # --------------------------------------------------------------------------
-# 2. 인증 설정
+# 2. 인증 설정 (다중 프로젝트 키 지원)
 # --------------------------------------------------------------------------
 API_KEYS = []
 
@@ -22,16 +22,17 @@ elif "GOOGLE_API_KEY" in st.secrets:
 if not API_KEYS:
     with st.sidebar:
         st.header("🔑 API 키 입력")
-        user_input = st.text_area("API Key 목록 (줄바꿈 구분)", type="password", height=150)
+        st.info("각기 다른 프로젝트의 API 키를 줄바꿈으로 입력하세요.")
+        user_input = st.text_area("API Key 목록", type="password", height=150)
         if user_input:
             API_KEYS = [k.strip() for k in user_input.replace(',', '\n').split('\n') if k.strip()]
 
 # --------------------------------------------------------------------------
-# 3. AI 분석 함수 (생존 전략: 살아있는 모델 우선 사용)
+# 3. AI 분석 함수 (5대 모델 x 멀티 프로젝트 총력전)
 # --------------------------------------------------------------------------
 def analyze_ahp_logic(goal, parent, children):
-    # 에러 기본값
-    empty_res = {"grade": "오류", "summary": "분석 실패", "suggestion": "잠시 후 시도", "example": "", "detail": ""}
+    # 기본 에러 값
+    empty_res = {"grade": "오류", "summary": "분석 실패", "suggestion": "잠시 후 시도", "example": "", "detail": "API 호출량 초과"}
 
     if not children:
         return {**empty_res, "grade": "정보없음", "summary": "하위 항목 없음"}
@@ -39,19 +40,18 @@ def analyze_ahp_logic(goal, parent, children):
     if not API_KEYS:
         return {**empty_res, "grade": "키 없음", "summary": "API 키 없음"}
     
-    # [상황 인식]
+    # [상황 인식] 1차 vs 2차
     is_main = (goal == parent)
     scope_guide = "1차 평가 기준의 균형성(MECE)을 중심으로 진단." if is_main else f"상위 기준 '{parent}'의 하위 세부 항목 적절성만 진단(다른 기준 언급 금지)."
 
-    # [핵심 전략] 
-    # 1. 에러가 났던 '2.0-flash'는 맨 뒤로 뺍니다.
-    # 2. 사용량이 0인 '2.5-flash-lite'를 1순위로 올립니다.
+    # [모델 라인업] 성능과 속도를 고려한 최적 순서
+    # Lite를 먼저 배치하여 속도 확보 -> 안 되면 Pro로 넘어가서 지능 확보
     models = [
-        'gemini-2.5-flash-lite',                # 1순위: 가장 쌩쌩함 (강추)
-        'gemini-2.0-flash-lite-preview-02-05', # 2순위: 그 다음으로 가벼움
-        'gemini-2.5-flash',                     # 3순위: 성능 좋음
-        'gemini-2.0-pro-exp-02-05',             # 4순위: 고성능
-        'gemini-2.0-flash'                      # 5순위: (현재 한도 초과 의심됨 -> 맨 뒤로)
+        'gemini-2.5-flash-lite',                # 1. 2.5 Lite (빠름)
+        'gemini-2.0-flash-lite-preview-02-05', # 2. 2.0 Lite (안정)
+        'gemini-2.5-flash',                     # 3. 2.5 Flash (균형)
+        'gemini-2.0-flash',                     # 4. 2.0 Flash (범용)
+        'gemini-2.0-pro-exp-02-05'              # 5. 2.0 Pro (고성능)
     ]
     
     prompt = f"""
@@ -83,15 +83,17 @@ def analyze_ahp_logic(goal, parent, children):
     3. 용어: (내용)
     """
     
+    # [핵심 전략] 모델 우선순위 유지 + 키 로드밸런싱
     attempts = []
-    # (키 개수 x 모델 5개) 조합 생성
-    for key in API_KEYS:
-        for model in models:
+    for model in models:
+        # 각 모델 단계에서 키를 섞어서 사용 (특정 프로젝트만 갈리는 것 방지)
+        shuffled_keys = API_KEYS.copy()
+        random.shuffle(shuffled_keys)
+        for key in shuffled_keys:
             attempts.append((key, model))
-    
-    # [전략 수정] 랜덤 셔플을 뺍니다.
-    # 이유: 지금은 '2.5-flash-lite'가 확실히 살아있으므로, 얘부터 무조건 먼저 시키는 게 유리합니다.
-    # random.shuffle(attempts) 
+            
+    # attempts 리스트 구성 예시:
+    # [(Key_B, Lite), (Key_A, Lite), (Key_C, Lite), (Key_A, Flash)...] 
     
     last_error = ""
     
@@ -102,15 +104,15 @@ def analyze_ahp_logic(goal, parent, children):
             response = model.generate_content(prompt)
             text = response.text
             
+            # 텍스트 청소 (별표 제거)
             def extract(tag, t):
                 match = re.search(fr"\[{tag}\](.*?)(?=\[|$)", t, re.DOTALL | re.IGNORECASE)
                 if match:
                     c = match.group(1).strip()
-                    c = c.replace("**", "").replace("*", "") # 별표 제거
+                    c = c.replace("**", "").replace("*", "") 
                     return re.sub(r"^[\s\:\-]]+|[\s\]\:\-]+$", "", c).strip()
                 return "-"
 
-            # 성공하면 바로 리턴 (루프 종료)
             return {
                 "grade": extract("GRADE", text),
                 "summary": extract("SUMMARY", text),
@@ -120,20 +122,13 @@ def analyze_ahp_logic(goal, parent, children):
             }
 
         except Exception as e:
-            # 에러 발생 시 로그만 찍고, '즉시' 다음 모델로 넘어감 (Sleep 최소화)
-            error_msg = str(e)
-            last_error = error_msg
-            
-            # 429(한도초과)면 가차 없이 다음 타자 등판
-            if "429" in error_msg or "Quota" in error_msg:
-                # print(f"Pass: {model_name} (Quota Exceeded)") # 디버깅용
-                continue 
-            
-            # 다른 에러면 잠깐 숨 고르고 이동
-            time.sleep(0.5)
+            # 에러 발생 시 즉시 다음 조합으로 이동 (0.2초 딜레이)
+            # print(f"Pass: {model_name} with Key ending in ...{key[-4:]}") # 디버깅용
+            last_error = str(e)
+            time.sleep(0.2)
             continue
 
-    return {**empty_res, "detail": f"모든 모델이 한도 초과입니다. 새 API 키가 필요합니다.\n(Last: {last_error})"}
+    return {**empty_res, "detail": f"모든 키와 모델이 한도 초과입니다. (Last: {last_error})"}
 
 # --------------------------------------------------------------------------
 # 4. UI 렌더링 함수
@@ -157,7 +152,7 @@ def render_result_ui(title, data, count_msg=""):
         st.write(f"**📋 진단 요약:** {data.get('summary', '-')}")
         
         if "적합" in grade:
-            st.success(f"💡 **제안:** {data.get('suggestion', '현재 구성이 훌륭합니다.')}")
+            st.success(f"💡 **제안:** {data.get('suggestion', '구성이 훌륭합니다.')}")
         else:
             st.info(f"💡 **제안:** {data.get('suggestion', '-')}")
         
@@ -171,10 +166,12 @@ def render_result_ui(title, data, count_msg=""):
             """, unsafe_allow_html=True)
         
         with st.expander("🔍 상세 분석 보기"):
-            st.write(data.get('detail', '-'))
+            # 한번 더 청소
+            cl = data.get('detail', '-').replace("**", "")
+            st.write(cl)
 
 # --------------------------------------------------------------------------
-# 5. 메인 로직
+# 5. 메인 로직 (쾌적한 속도: 2초)
 # --------------------------------------------------------------------------
 if 'main_count' not in st.session_state: st.session_state.main_count = 1 
 if 'sub_counts' not in st.session_state: st.session_state.sub_counts = {}
@@ -182,9 +179,11 @@ if 'sub_counts' not in st.session_state: st.session_state.sub_counts = {}
 st.title("1️⃣ 연구 설계 및 AI 진단")
 
 if API_KEYS:
-    st.caption(f"🔒 API 키 {len(API_KEYS)}개 연동됨 (생존 모델 우선 사용)")
+    # 든든한 메시지 출력
+    power = len(API_KEYS) * 5
+    st.caption(f"🔒 **멀티 프로젝트 모드:** {len(API_KEYS)}개의 독립된 키 × 5개 모델 = **{power}배** 성능 확보됨")
 
-goal = st.text_input("🎯 최종 목표", placeholder="예: 차세대 전투기 도입")
+goal = st.text_input("🎯 최종 목표", placeholder="예: 차세대 전투기 도입 / 점심 메뉴 선정")
 
 if goal:
     st.subheader("1. 기준 설정")
@@ -222,14 +221,13 @@ if goal:
                 status_text = st.empty()
                 
                 # 1. 메인 분석
-                status_text.text("🧠 1차 기준 분석 중... (Lite 모델 가동)")
+                status_text.text("🧠 1차 기준 분석 중... (멀티 프로젝트 가동)")
                 res = analyze_ahp_logic(goal, goal, main)
                 render_result_ui(f"1차 기준: {goal}", res)
                 
-                # 안전 대기 (Lite 모델은 분당 10-15회 가능하므로 5초면 충분)
-                for i in range(5):
-                    time.sleep(1)
-                    progress_bar.progress((1/total_steps) * (i/5))
+                # 2초 대기 (키가 많아서 이정도면 충분)
+                progress_bar.progress(1/total_steps)
+                time.sleep(2)
                 
                 # 2. 세부 항목 분석
                 current_step = 2
@@ -239,13 +237,11 @@ if goal:
                     res = analyze_ahp_logic(goal, p, ch)
                     render_result_ui(f"세부항목: {p}", res, msg)
                     
-                    # 안전 대기 5초
-                    for i in range(5):
-                        time.sleep(1)
-                    
+                    progress_bar.progress(current_step/total_steps)
+                    time.sleep(2)
                     current_step += 1
                 
-                status_text.success("✅ 모든 분석이 완료되었습니다!")
+                status_text.success("✅ 분석 완료!")
                 progress_bar.progress(1.0)
 
         st.divider()
