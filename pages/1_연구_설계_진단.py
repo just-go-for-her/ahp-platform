@@ -14,28 +14,21 @@ st.set_page_config(page_title="연구 설계 및 진단", page_icon="🧠", layo
 # --------------------------------------------------------------------------
 API_KEYS = []
 
-# 1. Secrets에서 리스트로 가져오기
 if "gemini_keys" in st.secrets:
     API_KEYS = st.secrets["gemini_keys"]
 elif "GOOGLE_API_KEY" in st.secrets:
     API_KEYS = [st.secrets["GOOGLE_API_KEY"]]
 
-# 2. 없으면 사이드바에서 입력받기 (여러 개 입력 가능)
 if not API_KEYS:
     with st.sidebar:
         st.header("🔑 API 키 입력")
         st.info("키가 3개라면 줄바꿈으로 구분해서 넣으세요.")
-        user_input = st.text_area(
-            "API Key 목록 (예: Key1 엔터 Key2 엔터 Key3)", 
-            type="password", 
-            height=150
-        )
+        user_input = st.text_area("API Key 목록", type="password", height=150)
         if user_input:
-            # 콤마나 줄바꿈으로 구분된 키를 리스트로 변환
             API_KEYS = [k.strip() for k in user_input.replace(',', '\n').split('\n') if k.strip()]
 
 # --------------------------------------------------------------------------
-# 3. AI 분석 함수 (총력전: 키 3개 x 모델 5개)
+# 3. AI 분석 함수 (프롬프트 대폭 수정: 말투 지적 금지)
 # --------------------------------------------------------------------------
 def analyze_ahp_logic(goal, parent, children):
     if not children:
@@ -44,55 +37,46 @@ def analyze_ahp_logic(goal, parent, children):
     if not API_KEYS:
         return {"grade": "키 없음", "summary": "API 키가 없습니다.", "suggestion": "", "example": "", "detail": ""}
     
-    # [전략] 작성자님 리스트에 있는 텍스트 모델 5종 (순서 중요)
-    # Lite 모델을 앞세워 속도와 쿼터를 챙기고, 뒤로 갈수록 고성능 모델 배치
+    # 모델 리스트 (Lite 우선)
     models = [
-        'gemini-2.5-flash-lite',      # 1. 최신 경량 (빠름/무료 빵빵)
-        'gemini-2.0-flash-lite',      # 2. 2.0 경량 (안정적)
-        'gemini-2.5-flash',           # 3. 최신 표준 (메인)
-        'gemini-2.0-flash',           # 4. 2.0 표준 (서브)
-        'gemini-2.0-pro-exp-02-05'    # 5. 프로 (최후의 보루)
+        'gemini-2.5-flash-lite', 'gemini-2.0-flash-lite', 
+        'gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-2.0-pro-exp-02-05'
     ]
     
-    # [프롬프트] 주제에 따른 페르소나 자동 전환
+    # [핵심] 프롬프트 수정: 페르소나 지적 금지, 오직 구조만 분석
     prompt = f"""
+    [역할] AHP 논리 구조 분석가
     [분석 대상]
     - 최종 목표: {goal}
     - 현재 기준: {parent}
     - 하위 항목: {children}
     
-    [지침: 페르소나 설정]
-    1. '{goal}'의 성격을 파악하라.
-       - **전문적/비즈니스/논문** 주제 -> '냉철한 컨설턴트' 톤 (전문 용어 사용, 엄격함)
-       - **일상/취미/가벼운** 주제 -> '친절한 멘토' 톤 (쉬운 용어, 격려)
-    
-    2. 공통 지침
-       - **한국어**로 작성하라.
-       - [EXAMPLE]은 설명 없이 **추천 항목 명사**만 3~4개 나열하라.
-       - [DETAIL]은 문제의 원인과 해결책을 짧고 명확하게 적어라.
+    [지침]
+    1. **말투 설정(내부 로직):** '{goal}'이 일상적이면 친절하게, 전문적이면 냉철하게 답변하라.
+    2. **금지 사항:** 절대 "말투가 너무 딱딱하다"거나 "페르소나 설정이 필요하다"는 식의 **형식적인 지적을 하지 마라.** 오직 **내용의 논리성**만 분석하라.
+    3. **분석 기준:**
+       - 상위 항목을 설명하기에 하위 항목들이 충분한가? (MECE)
+       - 항목 간의 레벨(위계)이 맞는가?
+       - 용어가 헷갈리지 않는가?
     
     [출력 포맷]
     [GRADE] 적합/보완필요/부적합
-    [SUMMARY] (주제 성격에 맞는 1문장 요약)
-    [SUGGESTION] (핵심 제안 1문장)
+    [SUMMARY] (논리적 구조에 대한 1문장 요약)
+    [SUGGESTION] (구체적인 항목 추가/삭제/변경 제안 1문장)
     [EXAMPLE]
-    - 항목1
-    - 항목2
-    - 항목3
+    - (설명 없이 추천 항목 명사만 3~4개 나열)
     [DETAIL]
-    1. 구성(MECE): (진단)
-    2. 위계 적절성: (진단)
-    3. 용어 명확성: (진단)
+    1. 구성(MECE): (중복이나 누락 여부만 진단)
+    2. 위계 적절성: (상/하위 개념 관계만 진단)
+    3. 용어 명확성: (더 좋은 용어 추천)
     """
     
-    # [핵심] 조합 생성 (Key 3개 x Model 5개 = 15개 조합)
     attempts = []
     for key in API_KEYS:
         for model in models:
             attempts.append((key, model))
     
-    # 순서는 섞지 않습니다. (Lite 모델부터 소모하는 게 이득이므로)
-    
+    # Lite 모델 우선 순차 실행
     for i, (key, model_name) in enumerate(attempts):
         try:
             genai.configure(api_key=key)
@@ -115,8 +99,6 @@ def analyze_ahp_logic(goal, parent, children):
             }
 
         except Exception as e:
-            # 429(한도초과) 등 에러 발생 시, 0.2초만 쉬고 바로 다음 키/모델로 넘어감
-            # (총 15번의 기회가 있으므로 과감하게 넘겨도 됨)
             time.sleep(0.2)
             continue
 
@@ -157,7 +139,7 @@ def render_result_ui(title, data, count_msg=""):
             st.write(data.get('detail', '-'))
 
 # --------------------------------------------------------------------------
-# 5. 메인 로직 (속도 최적화: 대기 시간 단축)
+# 5. 메인 로직
 # --------------------------------------------------------------------------
 if 'main_count' not in st.session_state: st.session_state.main_count = 1 
 if 'sub_counts' not in st.session_state: st.session_state.sub_counts = {}
@@ -165,10 +147,7 @@ if 'sub_counts' not in st.session_state: st.session_state.sub_counts = {}
 st.title("1️⃣ 연구 설계 및 AI 진단")
 
 if API_KEYS:
-    # 사용자에게 든든함을 주는 메시지
-    models_count = 5
-    total_chances = len(API_KEYS) * models_count
-    st.caption(f"🔒 **슈퍼 가동 모드:** API 키 {len(API_KEYS)}개 × 모델 {models_count}종 = **총 {total_chances}중 방어 시스템** 작동 중")
+    st.caption(f"🔒 **슈퍼 가동 모드:** API 키 {len(API_KEYS)}개 × 모델 5종 = 총력전")
 
 goal = st.text_input("🎯 최종 목표", placeholder="예: 차세대 전투기 도입 (전문적) / 점심 메뉴 선정 (가벼움)")
 
@@ -208,11 +187,11 @@ if goal:
                 status_text = st.empty()
                 
                 # 1. 메인 분석
-                status_text.text("🧠 목표 분석 중... (멀티 엔진 가동)")
+                status_text.text("🧠 목표 분석 중...")
                 res = analyze_ahp_logic(goal, goal, main)
                 render_result_ui(f"1차 기준: {goal}", res)
                 
-                # [속도 개선] 키가 3개나 있으므로 대기 시간을 2초로 줄입니다. (충분함)
+                # 2초 대기 (안정성)
                 progress_bar.progress(1/total_steps)
                 time.sleep(2)
                 
@@ -224,7 +203,6 @@ if goal:
                     res = analyze_ahp_logic(goal, p, ch)
                     render_result_ui(f"세부항목: {p}", res, msg)
                     
-                    # 대기 시간 2초
                     progress_bar.progress(current_step/total_steps)
                     time.sleep(2)
                     current_step += 1
