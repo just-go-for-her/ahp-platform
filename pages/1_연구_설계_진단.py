@@ -25,7 +25,7 @@ if api_key:
         pass
 
 # --------------------------------------------------------------------------
-# 3. AI 분석 함수 (파싱 로직 강화)
+# 3. AI 분석 함수 (파싱 및 모델 이어달리기)
 # --------------------------------------------------------------------------
 def analyze_ahp_logic(goal, parent, children):
     if not children:
@@ -34,21 +34,21 @@ def analyze_ahp_logic(goal, parent, children):
             "suggestion": "항목 추가 필요", "example": "추천 없음", "detail": "데이터 없음"
         }
     
-    # [프롬프트 수정] 괄호 쓰지 말라고 명시
+    # 프롬프트: 깔끔한 출력을 유도
     prompt = f"""
     [역할] AHP 구조 진단 컨설턴트
     [대상] 목표: {goal} / 상위항목: {parent} / 하위항목들: {children}
     
     [지침]
     1. 논리적(독립성, MECE)으로 문제가 없다면 '양호' 등급을 주어라.
-    2. [EXAMPLE]에는 현재 계층에 적합한 **핵심 키워드 3~5개**를 명사형으로 나열하라. (설명 금지)
-    3. **중요:** 출력 값에 대괄호 []나 특수기호를 불필요하게 넣지 마라. 깔끔한 텍스트만 출력하라.
+    2. [EXAMPLE]에는 현재 계층에 적합한 **핵심 키워드 3~5개**를 명사형으로 나열하라. (설명 금지, 단어만 나열)
+    3. 출력 시 불필요한 기호(괄호 등)를 쓰지 말고 내용만 명확히 적어라.
     
     [필수 출력 태그]
-    [GRADE] 양호/주의/위험 (단어만 출력)
-    [SUMMARY] 3줄 요약 (명확하게)
-    [SUGGESTION] 1줄 제안 (구체적으로)
-    [EXAMPLE] 3~5개의 모범 항목 리스트 (단어만 나열)
+    [GRADE] 양호/주의/위험
+    [SUMMARY] 핵심 문제점이나 칭찬을 1~2문장으로 요약
+    [SUGGESTION] 구체적인 수정 방향 1문장
+    [EXAMPLE] - 항목1\n- 항목2\n- 항목3 (형식으로 나열)
     [DETAIL] 상세 분석 내용
     """
     
@@ -66,15 +66,13 @@ def analyze_ahp_logic(goal, parent, children):
             response = model.generate_content(prompt)
             text = response.text
             
-            # [수정됨] 강력한 정규표현식 & 청소 로직
+            # 정규표현식 파싱 로직
             def extract(tag, t):
-                # 1. 태그 안의 내용 추출 (대소문자 무시, 태그 사이 공백 허용)
                 pattern = fr"\[\s*{tag}\s*\](.*?)(?=\[\s*[A-Z]+\s*\]|$)"
                 match = re.search(pattern, t, re.DOTALL | re.IGNORECASE)
-                
                 if match:
                     content = match.group(1).strip()
-                    # 2. 내용 앞뒤에 붙은 불필요한 [], **, : 제거 (청소)
+                    # 앞뒤 특수문자 제거 (청소)
                     content = re.sub(r"^[\s\[\*\:\-]]+|[\s\]\*\:\-]+$", "", content).strip()
                     return content
                 return "내용 없음"
@@ -103,60 +101,74 @@ def analyze_ahp_logic(goal, parent, children):
                 return {"grade": "에러", "detail": f"시스템 오류: {error_msg}"}
 
     return {
-        "grade": "⏳ 대기 필요",
-        "summary": "AI 사용량이 많아 잠시 지연되고 있습니다.",
-        "suggestion": "약 30초 뒤에 다시 시도해주세요.",
-        "example": "잠시 휴식",
-        "detail": f"모든 모델 응답 불가. (Last Error: {last_error})"
+        "grade": "⏳ 대기",
+        "summary": "AI 사용량 초과",
+        "suggestion": "잠시 후 다시 시도해주세요.",
+        "example": "",
+        "detail": f"Last Error: {last_error}"
     }
 
 # --------------------------------------------------------------------------
-# 4. UI 렌더링 함수 (디자인 개선)
+# 4. UI 렌더링 함수 (디자인 대폭 개선)
 # --------------------------------------------------------------------------
 def render_result_ui(title, data, count_msg=""):
     grade = data.get('grade', '정보없음')
-    
-    # 등급 텍스트 정제 (혹시 모를 괄호 제거)
     grade_clean = grade.replace("[", "").replace("]", "").strip()
     
-    if "위험" in grade_clean or "에러" in grade_clean: icon, color, bg = "🚨", "red", "#fee"
-    elif "주의" in grade_clean: icon, color, bg = "⚠️", "orange", "#fffae5"
-    elif "양호" in grade_clean: icon, color, bg = "✅", "green", "#eff"
-    elif "대기" in grade_clean: icon, color, bg = "⏳", "blue", "#e7f5ff"
-    else: icon, color, bg = "❓", "gray", "#eee"
+    # 등급별 스타일 설정
+    if "위험" in grade_clean or "에러" in grade_clean: 
+        icon, color = "🚨", "red"
+        alert_func = st.error
+    elif "주의" in grade_clean: 
+        icon, color = "⚠️", "orange"
+        alert_func = st.warning
+    elif "양호" in grade_clean: 
+        icon, color = "✅", "green"
+        alert_func = st.success
+    elif "대기" in grade_clean: 
+        icon, color = "⏳", "blue"
+        alert_func = st.info
+    else: 
+        icon, color = "❓", "gray"
+        alert_func = st.info
 
+    # 카드형 UI 시작
     with st.container(border=True):
-        c1, c2 = st.columns([3, 1])
-        c1.markdown(f"#### {icon} {title}")
-        # 등급 표시 깔끔하게
-        c2.markdown(f"**등급: :{color}[{grade_clean}]**")
+        # 1. 헤더 (제목 + 등급)
+        col1, col2 = st.columns([0.7, 0.3])
+        with col1:
+            st.markdown(f"#### {icon} {title}")
+            if count_msg: st.caption(f":red[{count_msg}]")
+        with col2:
+            st.markdown(f"<div style='text-align:right; font-weight:bold; color:{color}; font-size:1.2em;'>{grade_clean}</div>", unsafe_allow_html=True)
         
-        if count_msg: st.caption(f":red[{count_msg}]")
         st.divider()
         
-        # 요약 및 제안
-        st.markdown(f"**📋 요약**")
-        st.write(data.get('summary', ''))
+        # 2. 진단 요약 (간결하게)
+        st.markdown("**📋 진단 요약**")
+        st.write(data.get('summary', '내용 없음'))
         
-        if "양호" in grade_clean: 
-            st.success(f"💡 **제안:** {data.get('suggestion', '')}")
-        else: 
-            st.warning(f"💡 **제안:** {data.get('suggestion', '')}")
+        # 3. 핵심 제안 (가장 눈에 띄게)
+        st.markdown("**💡 AI의 제안**")
+        alert_func(data.get('suggestion', ''))
         
-        # 추천 예시 박스
+        # 4. 모범 답안 (카드 안에 카드 느낌)
         example_text = data.get('example', '')
         if len(example_text) > 2 and "없음" not in example_text:
+            st.markdown("<br>", unsafe_allow_html=True)
             st.markdown(f"""
-            <div style="background-color: {bg}; padding: 15px; border-radius: 10px; margin: 10px 0; border: 1px solid {color};">
-                <strong style="color: {color};">✨ AI 추천 모범 답안</strong>
-                <div style="margin-top: 5px; font-size: 0.95em; white-space: pre-line;">
-                    {example_text}
+            <div style="background-color: #f8f9fa; border-left: 5px solid {color}; padding: 15px; border-radius: 5px;">
+                <span style="font-weight:bold; color: #333;">✨ AI 추천 모범 답안</span>
+                <div style="margin-top: 10px; font-size: 0.95em; line-height: 1.6; color: #555;">
+                    {example_text.replace(chr(10), '<br>')}
                 </div>
             </div>
             """, unsafe_allow_html=True)
-            
-        with st.expander("🔍 상세 분석 보기"):
-            st.write(data.get('detail', ''))
+
+        # 5. 상세 분석 (접이식)
+        st.markdown("<br>", unsafe_allow_html=True)
+        with st.expander("🔍 상세 분석 결과 보기"):
+            st.markdown(data.get('detail', ''))
 
 # --------------------------------------------------------------------------
 # 5. 메인 로직
@@ -196,13 +208,14 @@ if goal:
 
         st.divider()
         if st.button("🚀 AI 진단 시작", type="primary"):
-            with st.spinner("🧠 AI 전문가 군단(Gemini 2.5/2.0)이 분석 중입니다..."):
+            with st.spinner("🧠 AI 전문가 군단이 분석 중입니다..."):
+                # 1. 메인 목표 진단
                 res = analyze_ahp_logic(goal, goal, main_criteria)
                 render_result_ui(f"1차 기준: {goal}", res)
                 
-                # 호출 간격 조절
-                time.sleep(1)
+                time.sleep(1) # API 부하 조절
                 
+                # 2. 세부 항목 진단
                 for p, c in structure_data.items():
                     msg = ""
                     if len(c) >= 8: msg = f"⚠️ 항목 과다 (7개 이하 권장)"
