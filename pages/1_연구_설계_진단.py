@@ -2,190 +2,159 @@ import streamlit as st
 import google.generativeai as genai
 import re
 import time
+import random
 
 # --------------------------------------------------------------------------
 # 1. 페이지 설정
 # --------------------------------------------------------------------------
 st.set_page_config(page_title="연구 설계 및 진단", page_icon="🧠", layout="wide")
 
+# ==========================================================================
+# [보안 설정] Secrets에서 API 키 리스트 가져오기
+# ==========================================================================
+API_KEYS = []
+
+if "gemini_keys" in st.secrets:
+    # secrets.toml에 리스트로 저장된 키를 가져옴
+    API_KEYS = st.secrets["gemini_keys"]
+elif "GOOGLE_API_KEY" in st.secrets:
+    # 혹시 키가 하나만 저장된 경우 (구버전 호환)
+    API_KEYS = [st.secrets["GOOGLE_API_KEY"]]
+
+# 키가 하나도 없으면 에러 처리
+if not API_KEYS:
+    st.error("🚨 설정된 API 키가 없습니다! Streamlit Secrets에 'gemini_keys'를 설정해주세요.")
+    st.stop()
+
 # --------------------------------------------------------------------------
-# 2. 인증 설정
+# 2. 스마트 AI 호출 함수 (키 로테이션 + 모델 로테이션)
 # --------------------------------------------------------------------------
-api_key = None
-if "GOOGLE_API_KEY" in st.secrets:
-    api_key = st.secrets["GOOGLE_API_KEY"]
-else:
-    with st.sidebar:
-        api_key = st.text_input("Google API Key", type="password")
-
-if api_key:
-    try:
-        genai.configure(api_key=api_key)
-    except:
-        pass
-
-# --------------------------------------------------------------------------
-# 3. AI 분석 함수 (프롬프트 대폭 개선)
-# --------------------------------------------------------------------------
-def analyze_ahp_logic(goal, parent, children):
-    if not children:
-        return {
-            "grade": "정보없음", "summary": "하위 항목 없음", 
-            "suggestion": "항목 추가 필요", "example": "추천 없음", "detail": "데이터 없음"
-        }
-    
-    # [핵심] AI에게 "개념적으로 정리해서" 답하라고 지시하는 프롬프트
-    prompt = f"""
-    [역할] AHP 연구 방법론 전문가
-    [분석 대상] 
-    - 최종 목표: {goal} 
-    - 현재 상위 항목: {parent} 
-    - 현재 하위 항목들: {children}
-    
-    [지침]
-    아래 태그에 맞춰 분석 결과를 출력하라. 괄호나 특수문자 장식은 최소화하라.
-
-    [GRADE]
-    (양호 / 주의 / 위험) 중 하나만 선택
-
-    [SUMMARY]
-    전체적인 구조의 상태를 2문장 이내로 핵심만 요약
-
-    [SUGGESTION]
-    연구자가 즉시 적용할 수 있는 가장 중요한 수정 제안 1가지
-
-    [EXAMPLE]
-    (현재 계층에 가장 적합한 모범 항목을 3~5개만 선정하고, 괄호 안에 선정 이유를 짧게 적어라)
-    - 항목명 (이유)
-    - 항목명 (이유)
-
-    [DETAIL]
-    (다음 3가지 소주제로 나누어 분석하라. 각 소주제는 줄바꿈으로 구분하라)
-    1. MECE(중복/누락) 진단: ...
-    2. 계층 위계 적절성: ...
-    3. 용어의 명확성: ...
+def call_ai_with_rotation(prompt):
     """
+    Secrets에 저장된 여러 개의 키와 여러 개의 모델을 조합하여
+    성공할 때까지 무한 로테이션을 수행하는 함수
+    """
+    # 사용 가능한 모델 리스트 (Flash/Lite 계열 위주)
+    models = ['gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-2.0-flash-lite']
     
-    # 모델 리스트 (이어달리기)
-    models_to_try = [
-        'gemini-2.5-flash',
-        'gemini-2.0-flash',
-        'gemini-2.0-flash-lite'
-    ]
+    # 시도할 조합 생성
+    attempts = []
+    for key in API_KEYS:
+        for model in models:
+            attempts.append((key, model))
     
+    # (선택사항) 특정 키에만 부하가 몰리지 않게 순서를 섞음
+    random.shuffle(attempts)
+
     last_error = ""
 
-    for model_name in models_to_try:
+    for i, (key, model_name) in enumerate(attempts):
         try:
+            # 1. 키 설정
+            genai.configure(api_key=key)
+            
+            # 2. 모델 설정
             model = genai.GenerativeModel(model_name)
+            
+            # 3. 요청
             response = model.generate_content(prompt)
-            text = response.text
-            
-            # 파싱 로직
-            def extract(tag, t):
-                pattern = fr"\[\s*{tag}\s*\](.*?)(?=\[\s*[A-Z]+\s*\]|$)"
-                match = re.search(pattern, t, re.DOTALL | re.IGNORECASE)
-                if match:
-                    content = match.group(1).strip()
-                    content = re.sub(r"^[\s\[\*\:\-]]+|[\s\]\*\:\-]+$", "", content).strip()
-                    return content
-                return "내용 없음"
-
-            data = {
-                "grade": extract("GRADE", text),
-                "summary": extract("SUMMARY", text),
-                "suggestion": extract("SUGGESTION", text),
-                "example": extract("EXAMPLE", text),
-                "detail": extract("DETAIL", text)
-            }
-            
-            if data["grade"] == "내용 없음": 
-                data["grade"] = "주의"
-                data["detail"] = text
-            
-            return data
+            return response.text # 성공 시 텍스트 반환
 
         except Exception as e:
             error_msg = str(e)
             last_error = error_msg
-            if "429" in error_msg or "Quota" in error_msg or "503" in error_msg:
-                time.sleep(1)
+            
+            # 429(사용량), 503(서버), 403(키 오류) 등은 다음 시도로 넘어감
+            if any(err in error_msg for err in ["429", "Quota", "503", "403"]):
+                # 아주 짧게 대기 후 바로 다음 타자 등판
+                time.sleep(0.2)
                 continue
             else:
-                return {"grade": "에러", "detail": f"시스템 오류: {error_msg}"}
+                # 문법 오류 등 치명적 에러는 바로 중단
+                return f"[ERROR] {error_msg}"
+
+    # 모든 키와 모델을 다 써봤는데도 실패한 경우
+    return None
+
+# --------------------------------------------------------------------------
+# 3. 분석 로직 (파싱 및 래퍼)
+# --------------------------------------------------------------------------
+def analyze_ahp_logic(goal, parent, children):
+    if not children:
+        return {"grade": "정보없음", "summary": "내용 없음", "suggestion": "항목 추가 필요", "example": "", "detail": ""}
+    
+    prompt = f"""
+    [역할] AHP 연구 설계 멘토 (학부생 및 실무자 눈높이)
+    [분석 대상] 목표: {goal} / 상위: {parent} / 하위: {children}
+    
+    [지침]
+    1. 논리적 오류(MECE)는 지적하되, 지나치게 복잡하거나 학술적인 항목 추가는 지양하라.
+    2. 항목 수는 그룹당 3~5개 이내가 적당하다고 조언하라.
+    3. [EXAMPLE]에는 현실적으로 다룰 수 있는 핵심 항목 3~4개를 추천하라. (단어만 나열)
+    4. 출력 시 불필요한 기호(괄호 등)를 쓰지 말고 내용만 명확히 적어라.
+    
+    [필수 출력 태그]
+    [GRADE] 양호/주의/위험
+    [SUMMARY] 요약
+    [SUGGESTION] 제안
+    [EXAMPLE] 모범 답안
+    [DETAIL] 상세 분석
+    """
+    
+    # [핵심] 로테이션 함수 호출
+    result_text = call_ai_with_rotation(prompt)
+    
+    if result_text is None:
+        return {
+            "grade": "⏳ 대기",
+            "summary": "모든 API 키 한도 초과",
+            "suggestion": "키를 더 추가하거나 잠시 후 시도하세요.",
+            "example": "",
+            "detail": "준비된 모든 API 키의 사용량이 소진되었습니다."
+        }
+    
+    if "[ERROR]" in result_text:
+         return {"grade": "에러", "detail": result_text}
+
+    # 파싱 로직
+    def extract(tag, t):
+        match = re.search(fr"\[\s*{tag}\s*\](.*?)(?=\[\s*[A-Z]+\s*\]|$)", t, re.DOTALL | re.IGNORECASE)
+        if match:
+            return re.sub(r"^[\s\[\*\:\-]]+|[\s\]\*\:\-]+$", "", match.group(1).strip()).strip()
+        return "내용 없음"
 
     return {
-        "grade": "⏳ 대기",
-        "summary": "AI 사용량 초과",
-        "suggestion": "잠시 후 다시 시도해주세요.",
-        "example": "",
-        "detail": f"Last Error: {last_error}"
+        "grade": extract("GRADE", result_text),
+        "summary": extract("SUMMARY", result_text),
+        "suggestion": extract("SUGGESTION", result_text),
+        "example": extract("EXAMPLE", result_text),
+        "detail": extract("DETAIL", result_text)
     }
 
 # --------------------------------------------------------------------------
-# 4. UI 렌더링 함수 (깔끔한 디자인 적용)
+# 4. UI 렌더링 함수
 # --------------------------------------------------------------------------
 def render_result_ui(title, data, count_msg=""):
-    grade = data.get('grade', '정보없음')
-    grade_clean = grade.replace("[", "").replace("]", "").strip()
-    
-    # 색상 테마 설정
-    if "위험" in grade_clean or "에러" in grade_clean: 
-        icon, color = "🚨", "red"
-        bg_color = "#fff5f5"
-        alert_func = st.error
-    elif "주의" in grade_clean: 
-        icon, color = "⚠️", "orange"
-        bg_color = "#fffcf5"
-        alert_func = st.warning
-    elif "양호" in grade_clean: 
-        icon, color = "✅", "green"
-        bg_color = "#f0fff4"
-        alert_func = st.success
-    else: 
-        icon, color = "⏳", "blue"
-        bg_color = "#e7f5ff"
-        alert_func = st.info
+    grade = data.get('grade', '').replace("[", "").replace("]", "").strip()
+    if "양호" in grade: icon, color, bg = "✅", "green", "#f0fff4"
+    elif "주의" in grade: icon, color, bg = "⚠️", "orange", "#fffcf5"
+    elif "위험" in grade: icon, color, bg = "🚨", "red", "#fff5f5"
+    else: icon, color, bg = "❓", "gray", "#f8f9fa"
 
-    # 카드 UI 시작
     with st.container(border=True):
-        # 1. 헤더
-        c1, c2 = st.columns([0.75, 0.25])
-        with c1:
-            st.markdown(f"#### {icon} {title}")
-            if count_msg: st.caption(f":red[{count_msg}]")
-        with c2:
-            st.markdown(f"<div style='text-align:right; color:{color}; font-weight:bold; font-size:1.1em; padding-top:10px;'>{grade_clean}</div>", unsafe_allow_html=True)
-        
+        c1, c2 = st.columns([0.8, 0.2])
+        c1.markdown(f"#### {icon} {title}")
+        c2.markdown(f"<div style='color:{color}; font-weight:bold; text-align:right;'>{grade}</div>", unsafe_allow_html=True)
+        if count_msg: st.caption(f":red[{count_msg}]")
         st.divider()
+        st.markdown(f"**📋 요약:** {data.get('summary')}")
+        st.info(f"💡 **제안:** {data.get('suggestion')}")
         
-        # 2. 진단 요약
-        st.markdown("**📋 진단 요약**")
-        st.write(data.get('summary', '-'))
+        ex = data.get('example', '')
+        if len(ex) > 5:
+            st.markdown(f"<div style='background:{bg}; padding:15px; border-left:4px solid {color}; margin:10px 0;'><b>✨ AI 모범 답안</b><br>{ex.replace(chr(10), '<br>')}</div>", unsafe_allow_html=True)
         
-        # 3. AI 제안 (강조 박스)
-        st.markdown("**💡 AI의 핵심 제안**")
-        alert_func(data.get('suggestion', '-'))
-        
-        # 4. 모범 답안 (카드 스타일)
-        example_text = data.get('example', '')
-        if len(example_text) > 5 and "없음" not in example_text:
-            st.markdown("<br>", unsafe_allow_html=True)
-            st.markdown(f"""
-            <div style="background-color: #f8f9fa; border-left: 4px solid {color}; padding: 15px; border-radius: 4px;">
-                <div style="font-weight:bold; color: #555; margin-bottom: 8px;">✨ AI 추천 모범 답안 (Best Practice)</div>
-                <div style="font-size: 0.95em; line-height: 1.6; color: #333; white-space: pre-line;">
-                    {example_text}
-                </div>
-            </div>
-            """, unsafe_allow_html=True)
-
-        # 5. 상세 분석 (구조화된 텍스트)
-        st.markdown("<br>", unsafe_allow_html=True)
-        with st.expander("🔍 상세 분석 결과 보기 (MECE / 위계 / 용어)"):
-            detail_text = data.get('detail', '')
-            # 소주제별로 볼드체 처리 등 마크다운 강화 가능
-            st.markdown(detail_text)
+        with st.expander("🔍 상세 분석"): st.write(data.get('detail'))
 
 # --------------------------------------------------------------------------
 # 5. 메인 로직
@@ -195,57 +164,55 @@ if 'sub_counts' not in st.session_state: st.session_state.sub_counts = {}
 
 st.title("1️⃣ 연구 설계 및 AI 진단")
 
+# API 키 상태 표시 (보안을 위해 개수만 표시)
+if API_KEYS:
+    st.caption(f"🔒 **보안 모드 작동 중:** {len(API_KEYS)}개의 API 키가 로테이션 대기 중입니다.")
+else:
+    st.error("🚨 Secrets에 API 키가 없습니다.")
+
 goal = st.text_input("🎯 최종 목표", placeholder="예: 차세대 전투기 도입")
 
 if goal:
-    st.subheader("1. 기준 설정 (1차)")
-    main_criteria = []
+    st.subheader("1. 기준 설정")
+    main = []
     for i in range(st.session_state.main_count):
         val = st.text_input(f"기준 {i+1}", key=f"main_{i}")
-        if val: main_criteria.append(val)
-    if st.button("➕ 기준 추가"):
+        if val: main.append(val)
+    if st.button("➕ 기준 추가"): 
         st.session_state.main_count += 1
         st.rerun()
 
-    structure_data = {}
-    if main_criteria:
+    struct = {}
+    if main:
         st.divider()
-        st.subheader("2. 세부 항목 구성 (2차)")
-        for criterion in main_criteria:
-            with st.expander(f"📂 '{criterion}' 하위 요소", expanded=True):
-                if criterion not in st.session_state.sub_counts: st.session_state.sub_counts[criterion] = 1
-                sub_items = []
-                for j in range(st.session_state.sub_counts[criterion]):
-                    s_val = st.text_input(f"ㄴ {criterion}-{j+1}", key=f"sub_{criterion}_{j}")
-                    if s_val: sub_items.append(s_val)
-                if st.button("➕ 추가", key=f"btn_{criterion}"):
-                    st.session_state.sub_counts[criterion] += 1
+        st.subheader("2. 세부 항목")
+        for c in main:
+            with st.expander(f"📂 '{c}' 하위 요소", expanded=True):
+                if c not in st.session_state.sub_counts: st.session_state.sub_counts[c]=1
+                subs = []
+                for j in range(st.session_state.sub_counts[c]):
+                    v = st.text_input(f"ㄴ {c}-{j+1}", key=f"sub_{c}_{j}")
+                    if v: subs.append(v)
+                if st.button("➕ 추가", key=f"btn_{c}"):
+                    st.session_state.sub_counts[c]+=1
                     st.rerun()
-                structure_data[criterion] = sub_items
+                struct[c] = subs
 
         st.divider()
         if st.button("🚀 AI 진단 시작", type="primary"):
-            with st.spinner("🧠 AI 전문가 군단이 구조를 정밀 분석 중입니다..."):
-                res = analyze_ahp_logic(goal, goal, main_criteria)
+            with st.spinner("🧠 보안 키 로테이션 가동! 고속 분석 중..."):
+                # 1. 메인 분석
+                res = analyze_ahp_logic(goal, goal, main)
                 render_result_ui(f"1차 기준: {goal}", res)
                 
-                time.sleep(1) 
-                
-                for p, c in structure_data.items():
-                    msg = ""
-                    if len(c) >= 8: msg = f"⚠️ 항목 과다 (7개 이하 권장)"
-                    res = analyze_ahp_logic(goal, p, c)
+                # 2. 세부 항목 분석
+                # (키가 여러 개이므로 대기 시간 없이 바로바로 실행)
+                for p, ch in struct.items():
+                    msg = "⚠️ 항목 과다" if len(ch) >= 8 else ""
+                    res = analyze_ahp_logic(goal, p, ch)
                     render_result_ui(f"세부항목: {p}", res, msg)
-                    time.sleep(1)
 
         st.divider()
-        st.markdown("### 📤 설문 생성 단계")
-        st.caption("구조가 확정되었다면 아래 버튼을 눌러 설문 도구로 이동하세요.")
-        
-        if st.button("💾 구조 확정 및 설문 배포하러 가기"):
-            st.session_state['passed_structure'] = {
-                "goal": goal,
-                "main_criteria": main_criteria,
-                "sub_criteria": structure_data
-            }
-            st.success("✅ 구조가 저장되었습니다! 왼쪽 메뉴의 [2_설문_진행]으로 이동하세요.")
+        if st.button("💾 구조 확정 및 설문 배포"):
+            st.session_state['passed'] = {"goal": goal, "main": main, "sub": struct}
+            st.success("✅ 저장 완료! [2_설문_진행] 메뉴로 이동하세요.")
