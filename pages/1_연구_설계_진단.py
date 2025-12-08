@@ -25,7 +25,7 @@ if api_key:
         pass
 
 # --------------------------------------------------------------------------
-# 3. AI 분석 함수 (제공된 리스트 기반 이어달리기)
+# 3. AI 분석 함수 (Slow & Steady 전략)
 # --------------------------------------------------------------------------
 def analyze_ahp_logic(goal, parent, children):
     if not children:
@@ -50,16 +50,16 @@ def analyze_ahp_logic(goal, parent, children):
     [DETAIL] (상세 분석)
     """
     
-    # [수정됨] 제공해주신 리스트 중 가장 효율적인 모델들로 구성
+    # 모델 리스트
     models_to_try = [
-        'gemini-2.5-flash',      # 1순위: 최신 고속 모델
-        'gemini-2.0-flash',      # 2순위: 안정적인 2.0 버전
-        'gemini-2.0-flash-lite'  # 3순위: 가장 가볍고 한도 높은 모델 (최후방어)
+        'gemini-2.5-flash',
+        'gemini-2.0-flash',
+        'gemini-2.0-flash-lite'
     ]
     
     last_error = ""
 
-    for model_name in models_to_try:
+    for i, model_name in enumerate(models_to_try):
         try:
             # 모델 생성 및 요청
             model = genai.GenerativeModel(model_name)
@@ -90,9 +90,11 @@ def analyze_ahp_logic(goal, parent, children):
             error_msg = str(e)
             last_error = error_msg
             
-            # 429(Quota), 503(Service Unavailable) 에러 시 다음 모델로 이동
+            # 에러 발생 시 처리
             if "429" in error_msg or "Quota" in error_msg or "503" in error_msg:
-                time.sleep(0.5) # 아주 잠깐 대기
+                # [핵심 변경] 사용자에게 진행상황을 알리고, 3초간 확실히 쉼
+                st.toast(f"⚠️ {model_name} 모델이 바빠서 다음 모델로 전환합니다...", icon="🔄")
+                time.sleep(3) # 3초 대기 (구글의 분당 제한을 피하기 위함)
                 continue
             else:
                 return {"grade": "에러", "detail": f"시스템 오류: {error_msg}"}
@@ -100,10 +102,10 @@ def analyze_ahp_logic(goal, parent, children):
     # 모든 모델 실패 시
     return {
         "grade": "⏳ 대기 필요",
-        "summary": "AI 사용량이 일시적으로 많습니다.",
-        "suggestion": "약 30초 뒤에 다시 시도해주세요.",
+        "summary": "현재 사용자가 너무 많아 AI가 응답하지 못했습니다.",
+        "suggestion": "약 1분 뒤에 천천히 다시 시도해주세요.",
         "example": "잠시 휴식",
-        "detail": f"사용 가능한 모든 모델(2.5 Flash, 2.0 Flash/Lite)이 응답하지 않습니다.\n잠시만 기다려주세요.\n(Last Error: {last_error})"
+        "detail": f"모든 모델이 한도 초과입니다. 잠시 휴식 후 시도해주세요.\n(Last Error: {last_error})"
     }
 
 # --------------------------------------------------------------------------
@@ -183,15 +185,20 @@ if goal:
         st.divider()
         # [AI 진단 버튼]
         if st.button("🚀 AI 진단 시작", type="primary"):
-            # 로딩 메시지 업데이트
-            with st.spinner("🧠 AI (Gemini 2.5 & 2.0 Flash) 가 분석 중입니다..."):
+            # 로딩 문구에 팁 추가
+            with st.spinner("🧠 분석 중... (오류 발생 시 자동으로 다른 모델을 시도합니다)"):
                 res = analyze_ahp_logic(goal, goal, main_criteria)
                 render_result_ui(f"1차 기준: {goal}", res)
+                
+                # [중요] 루프 안에서도 API 호출 간격을 강제로 띄움
+                time.sleep(1) 
+                
                 for p, c in structure_data.items():
                     msg = ""
                     if len(c) >= 8: msg = f"⚠️ 항목 과다 (7개 이하 권장)"
                     res = analyze_ahp_logic(goal, p, c)
                     render_result_ui(f"세부항목: {p}", res, msg)
+                    time.sleep(1) # 연속 호출 방지
 
         # [데이터 전송 버튼]
         st.divider()
