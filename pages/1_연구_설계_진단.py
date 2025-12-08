@@ -21,75 +21,70 @@ elif "GOOGLE_API_KEY" in st.secrets:
 
 if not API_KEYS:
     with st.sidebar:
-        st.header("🔑 API Key Authorization")
-        user_input = st.text_area("Enter API Keys (One per line)", type="password", height=100)
+        st.header("🔑 API Key 입력")
+        user_input = st.text_area("API Key 목록 (한 줄에 하나씩)", type="password", height=100)
         if user_input:
             API_KEYS = [k.strip() for k in user_input.replace(',', '\n').split('\n') if k.strip()]
 
 # --------------------------------------------------------------------------
-# 3. AI 분석 함수 (전문가/경영가용 프롬프트 적용)
+# 3. AI 분석 함수 (한국형 전문가 보고서 스타일)
 # --------------------------------------------------------------------------
 def analyze_ahp_logic(goal, parent, children):
-    # 하위 항목 부재 시 처리
     if not children:
         return {
-            "grade": "N/A", "summary": "하위 평가 요소가 정의되지 않았습니다.", 
+            "grade": "N/A", "summary": "하위 평가 요소 미정의", 
             "suggestion": "평가 목적에 부합하는 하위 요소를 구성하십시오.", "example": "", "detail": ""
         }
     
     if not API_KEYS:
         return {
-            "grade": "Unauthorized", "summary": "API 인증 키가 확인되지 않습니다.",
-            "suggestion": "시스템 관리자에게 문의하거나 키를 설정하십시오.", "example": "", "detail": ""
+            "grade": "인증실패", "summary": "API 키가 확인되지 않습니다.",
+            "suggestion": "설정에서 API 키를 입력하십시오.", "example": "", "detail": ""
         }
     
-    # [상황 인식 로직] 1차 기준 vs 2차 세부항목
+    # [상황 인식] 1차 기준 vs 2차 세부항목
     is_main_criteria = (goal == parent)
     
     if is_main_criteria:
         context_guide = """
-        - 현재 분석 대상은 최상위 목표를 달성하기 위한 '핵심 성공 요인(CSF)' 또는 '1차 평가 기준'임.
-        - 전략적 중요도와 평가의 포괄성(Comprehensiveness)을 중심으로 진단할 것.
+        - 현재 분석 대상: 최상위 목표 달성을 위한 '핵심 성공 요인(CSF)' 또는 '1차 평가 기준'.
+        - 진단 초점: 전략적 중요도와 평가 영역의 포괄성(Comprehensiveness).
         """
     else:
         context_guide = f"""
-        - 현재 분석 대상은 상위 기준 '{parent}'를 측정하기 위한 '세부 측정 지표(Sub-criteria)'임.
-        - 상위 기준과의 논리적 연계성(Alignment)과 측정 가능성(Measurability)을 중심으로 진단할 것.
+        - 현재 분석 대상: 상위 기준 '{parent}'를 측정하기 위한 '세부 측정 지표'.
+        - 진단 초점: 상위 기준과의 논리적 연계성(Alignment) 및 측정 가능성.
         """
 
-    # [핵심] 전문가용 프롬프트 (Professional Tone)
+    # [핵심] 한국어 전문가 프롬프트
     prompt = f"""
-    [Role] Senior Methodology Consultant (AHP & Decision Science Expert)
-    [Target User] Professional Researchers, Business Executives, Policy Makers
-    [Context]
-    - Goal: {goal}
-    - Parent Criteria: {parent}
-    - Sub-criteria (To be analyzed): {children}
+    [역할] AHP 연구 방법론 전문 컨설턴트
+    [분석 대상] 
+    - 목표: {goal}
+    - 상위 기준: {parent}
+    - 하위 항목: {children}
     
-    [Instruction]
+    [지침]
+    1. **언어:** 반드시 **한국어(Korean)**로 작성하라.
+    2. **톤앤매너:** 객관적이고 냉철한 '분석 보고서' 스타일 (예: ~함, ~가 식별됨).
+    3. **핵심 위주:** 장황한 설명 대신, 문제의 **'원인'과 '개선 방향'**을 명사형으로 간결하게 제시하라.
+    
     {context_guide}
-    Analyze the structural validity based on AHP principles. Use professional and academic terminology.
     
-    [Output Guidelines]
-    1. **Conciseness**: Be direct and analytical. Avoid conversational filler.
-    2. **Terminology**: Use terms like 'MECE', 'Hierarchy', 'Operational Definition', 'Strategic Alignment'.
-    3. **Recommendation**: Provide industry-standard criteria suitable for high-level decision making.
-    
-    [Required Output Format]
-    [GRADE] Optimal / Needs Improvement / Critical Issue (Choose one)
-    [SUMMARY] (Executive Summary of structural integrity, max 2 sentences)
-    [SUGGESTION] (Key strategic recommendation for model optimization)
+    [출력 포맷]
+    [GRADE] 적합/보완필요/부적합 (중 택 1)
+    [SUMMARY] (구조적 정합성에 대한 1줄 요약)
+    [SUGGESTION] (최적화를 위한 전략적 제언 1문장)
     [EXAMPLE]
-    - Criteria 1 (Rationale)
-    - Criteria 2 (Rationale)
-    - Criteria 3 (Rationale)
+    - 표준 지표 1 (선정 근거)
+    - 표준 지표 2 (선정 근거)
     [DETAIL]
-    1. MECE Analysis: (Check for Mutually Exclusive & Collectively Exhaustive)
-    2. Hierarchical Consistency: (Check for level appropriateness)
-    3. Terminological Precision: (Check for ambiguity)
+    1. 구성의 완결성(MECE): (중복/누락 여부 핵심 진단)
+    2. 위계의 적합성: (항목 레벨 및 분류 적절성 진단)
+    3. 개념의 명확성: (용어의 조작적 정의 및 직관성 진단)
     """
     
-    # 키 & 모델 로테이션 (안정성 확보)
+    # 키 & 모델 로테이션
     models = ['gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-2.0-flash-lite']
     attempts = []
     for key in API_KEYS:
@@ -125,56 +120,56 @@ def analyze_ahp_logic(goal, parent, children):
                 continue
             return {"grade": "Error", "detail": f"System Error: {str(e)}", "summary": "Analysis Failed", "example": ""}
 
-    return {"grade": "Pending", "summary": "API Quota Exceeded", "detail": "Please try again later.", "example": ""}
+    return {"grade": "대기", "summary": "API Quota Exceeded", "detail": "Please try again later.", "example": ""}
 
 # --------------------------------------------------------------------------
-# 4. UI 렌더링 함수 (비즈니스 리포트 스타일)
+# 4. UI 렌더링 함수 (전문가 보고서 디자인)
 # --------------------------------------------------------------------------
 def render_result_ui(title, data, count_msg=""):
     grade = data.get('grade', '-').replace("[", "").replace("]", "").strip()
     
-    # 등급 매핑 (전문적인 용어로 변경)
-    if "Optimal" in grade or "양호" in grade: 
+    # 등급 매핑
+    if "적합" in grade or "Optimal" in grade: 
         icon, color, bg = "✅", "green", "#f0fff4"
-        korean_grade = "적합 (Optimal)"
-    elif "Improvement" in grade or "주의" in grade: 
+        display_grade = "적합 (Optimal)"
+    elif "보완" in grade or "Improvement" in grade: 
         icon, color, bg = "⚠️", "orange", "#fffcf5"
-        korean_grade = "보완 필요 (Needs Improvement)"
-    elif "Critical" in grade or "위험" in grade: 
+        display_grade = "보완 필요 (Needs Improvement)"
+    elif "부적합" in grade or "Critical" in grade: 
         icon, color, bg = "🚨", "red", "#fff5f5"
-        korean_grade = "부적합 (Critical Issue)"
+        display_grade = "부적합 (Critical Issue)"
     else: 
         icon, color, bg = "❓", "gray", "#f8f9fa"
-        korean_grade = "분석 불가"
+        display_grade = "분석 불가"
 
     with st.container(border=True):
-        # 헤더 디자인
+        # 헤더
         c1, c2 = st.columns([0.7, 0.3])
         c1.markdown(f"#### {icon} {title}")
-        c2.markdown(f"<div style='color:{color}; font-weight:bold; text-align:right; font-family:sans-serif;'>{korean_grade}</div>", unsafe_allow_html=True)
+        c2.markdown(f"<div style='color:{color}; font-weight:bold; text-align:right; font-family:sans-serif;'>{display_grade}</div>", unsafe_allow_html=True)
         
         if count_msg: st.caption(f":red[{count_msg}]")
         st.divider()
         
-        # 1. Executive Summary
-        st.markdown(f"**📊 Executive Summary**")
+        # 1. 진단 요약
+        st.markdown(f"**📊 구조적 정합성 진단 요약**")
         st.write(data.get('summary', '-'))
         
-        # 2. Strategic Recommendation
-        st.info(f"💡 **Strategic Recommendation:** {data.get('suggestion', '-')}")
+        # 2. 전략적 제언
+        st.info(f"💡 **전문가의 전략적 제언:** {data.get('suggestion', '-')}")
         
-        # 3. Standard Criteria (모범 답안)
+        # 3. 표준 지표 제언
         ex = data.get('example', '')
         if len(ex) > 2:
             st.markdown(f"""
             <div style="background:{bg}; padding:15px; border-radius:4px; border-left:4px solid {color}; margin-top:10px;">
-                <div style="font-weight:bold; color:#444; margin-bottom:5px; font-size:0.9em;">🧬 표준화된 평가 지표 제언 (Recommended Criteria)</div>
+                <div style="font-weight:bold; color:#444; margin-bottom:5px; font-size:0.9em;">🧬 표준화된 평가 지표 제언 (Standard Criteria)</div>
                 <div style="white-space: pre-line; color:#333; font-size:0.95em;">{ex}</div>
             </div>
             """, unsafe_allow_html=True)
         
-        # 4. Detailed Audit (상세 분석)
-        with st.expander("🔍 Structural Integrity Audit (구조적 정합성 상세 분석)"):
+        # 4. 상세 분석 (핵심 관점 3가지)
+        with st.expander("🔍 상세 진단 결과 (MECE / 위계 / 정의)"):
             st.markdown(data.get('detail', '-'))
 
 # --------------------------------------------------------------------------
@@ -186,9 +181,9 @@ if 'sub_counts' not in st.session_state: st.session_state.sub_counts = {}
 st.title("⚖️ 연구 설계 및 구조 진단")
 
 if API_KEYS:
-    st.caption(f"🔒 **Secure Mode Active:** {len(API_KEYS)} API Keys Ready")
+    st.caption(f"🔒 **Secure Analysis Mode:** {len(API_KEYS)} API Keys Active")
 
-goal = st.text_input("🎯 Decision Goal (최종 의사결정 목표)", placeholder="예: 차세대 주력 전차(MBT) 기종 선정, 신사옥 입지 선정 전략")
+goal = st.text_input("🎯 Decision Goal (최종 의사결정 목표)", placeholder="예: 차세대 주력 전차(MBT) 기종 선정")
 
 if goal:
     st.subheader("1. 1차 평가 기준 설정 (Main Criteria)")
@@ -217,26 +212,26 @@ if goal:
                 struct[c] = subs
 
         st.divider()
-        if st.button("🚀 구조 정합성 진단 실행 (Analyze Structure)", type="primary"):
+        if st.button("🚀 구조 정합성 진단 실행", type="primary"):
             if not API_KEYS:
-                st.error("API Key Missing.")
+                st.error("API 키가 없습니다.")
             else:
-                with st.spinner("🔄 Performing Structural Integrity Analysis..."):
+                with st.spinner("🔄 전문 컨설팅 알고리즘이 분석 중입니다..."):
                     # 1. 메인 분석
                     res = analyze_ahp_logic(goal, goal, main)
                     render_result_ui(f"Level 1: {goal}", res)
                     
                     # 2. 세부 항목 분석
                     for p, ch in struct.items():
-                        msg = "⚠️ 항목 과다 (Cognitive Overload Risk)" if len(ch) >= 8 else ""
+                        msg = "⚠️ 지표 과다 (인지 부하 위험)" if len(ch) >= 8 else ""
                         res = analyze_ahp_logic(goal, p, ch)
                         render_result_ui(f"Level 2: {p}", res, msg)
 
         st.divider()
-        if st.button("💾 연구 모형 확정 및 설문 생성 (Confirm & Deploy)"):
+        if st.button("💾 연구 모형 확정 및 설문 생성"):
             st.session_state['passed_structure'] = {
                 "goal": goal,
                 "main_criteria": main,
                 "sub_criteria": struct
             }
-            st.success("✅ Model Confirmed. Proceed to [2_설문_진행].")
+            st.success("✅ 연구 모형이 확정되었습니다. [2_설문_진행] 메뉴로 이동하십시오.")
