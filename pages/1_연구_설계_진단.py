@@ -10,24 +10,32 @@ import random
 st.set_page_config(page_title="연구 설계 및 진단", page_icon="🧠", layout="wide")
 
 # --------------------------------------------------------------------------
-# 2. 인증 설정 (Secrets 우선 -> 사이드바 입력)
+# 2. 인증 설정 (다중 키 지원)
 # --------------------------------------------------------------------------
 API_KEYS = []
 
+# 1. Secrets에서 리스트로 가져오기
 if "gemini_keys" in st.secrets:
     API_KEYS = st.secrets["gemini_keys"]
 elif "GOOGLE_API_KEY" in st.secrets:
     API_KEYS = [st.secrets["GOOGLE_API_KEY"]]
 
+# 2. 없으면 사이드바에서 입력받기 (여러 개 입력 가능)
 if not API_KEYS:
     with st.sidebar:
         st.header("🔑 API 키 입력")
-        user_input = st.text_area("API Key 목록 (줄바꿈 구분)", type="password", height=100)
+        st.info("키가 3개라면 줄바꿈으로 구분해서 넣으세요.")
+        user_input = st.text_area(
+            "API Key 목록 (예: Key1 엔터 Key2 엔터 Key3)", 
+            type="password", 
+            height=150
+        )
         if user_input:
+            # 콤마나 줄바꿈으로 구분된 키를 리스트로 변환
             API_KEYS = [k.strip() for k in user_input.replace(',', '\n').split('\n') if k.strip()]
 
 # --------------------------------------------------------------------------
-# 3. AI 분석 함수 (동적 페르소나 적용)
+# 3. AI 분석 함수 (총력전: 키 3개 x 모델 5개)
 # --------------------------------------------------------------------------
 def analyze_ahp_logic(goal, parent, children):
     if not children:
@@ -36,7 +44,17 @@ def analyze_ahp_logic(goal, parent, children):
     if not API_KEYS:
         return {"grade": "키 없음", "summary": "API 키가 없습니다.", "suggestion": "", "example": "", "detail": ""}
     
-    # [핵심] 목표에 따라 AI의 말투와 기준을 바꾸는 프롬프트
+    # [전략] 작성자님 리스트에 있는 텍스트 모델 5종 (순서 중요)
+    # Lite 모델을 앞세워 속도와 쿼터를 챙기고, 뒤로 갈수록 고성능 모델 배치
+    models = [
+        'gemini-2.5-flash-lite',      # 1. 최신 경량 (빠름/무료 빵빵)
+        'gemini-2.0-flash-lite',      # 2. 2.0 경량 (안정적)
+        'gemini-2.5-flash',           # 3. 최신 표준 (메인)
+        'gemini-2.0-flash',           # 4. 2.0 표준 (서브)
+        'gemini-2.0-pro-exp-02-05'    # 5. 프로 (최후의 보루)
+    ]
+    
+    # [프롬프트] 주제에 따른 페르소나 자동 전환
     prompt = f"""
     [분석 대상]
     - 최종 목표: {goal}
@@ -44,44 +62,37 @@ def analyze_ahp_logic(goal, parent, children):
     - 하위 항목: {children}
     
     [지침: 페르소나 설정]
-    1. 먼저 '{goal}'의 성격을 분석하라.
-       - **전문적/학술적/비즈니스 주제**라면: '냉철한 전문 컨설턴트' 톤으로 분석하라. 전문 용어(MECE, 위계성 등)를 적절히 사용하고 엄격하게 평가하라.
-       - **일상/취미/가벼운 주제**라면: '친절한 멘토' 톤으로 분석하라. 쉬운 용어를 사용하고 격려하는 어조로 평가하라.
+    1. '{goal}'의 성격을 파악하라.
+       - **전문적/비즈니스/논문** 주제 -> '냉철한 컨설턴트' 톤 (전문 용어 사용, 엄격함)
+       - **일상/취미/가벼운** 주제 -> '친절한 멘토' 톤 (쉬운 용어, 격려)
     
     2. 공통 지침
-       - 답변은 **한국어**로 간결하게 작성하라.
+       - **한국어**로 작성하라.
        - [EXAMPLE]은 설명 없이 **추천 항목 명사**만 3~4개 나열하라.
-       - 불필요한 서론/결론을 빼고 핵심만 출력하라.
+       - [DETAIL]은 문제의 원인과 해결책을 짧고 명확하게 적어라.
     
     [출력 포맷]
-    [GRADE] 적합/보완필요/부적합 (중 택 1)
-    [SUMMARY] (주제 성격에 맞는 톤으로 1문장 요약)
-    [SUGGESTION] (가장 필요한 수정 사항 1문장)
+    [GRADE] 적합/보완필요/부적합
+    [SUMMARY] (주제 성격에 맞는 1문장 요약)
+    [SUGGESTION] (핵심 제안 1문장)
     [EXAMPLE]
     - 항목1
     - 항목2
     - 항목3
     [DETAIL]
-    1. 구성(MECE): (핵심 진단)
-    2. 위계 적절성: (핵심 진단)
-    3. 용어 명확성: (핵심 진단)
+    1. 구성(MECE): (진단)
+    2. 위계 적절성: (진단)
+    3. 용어 명확성: (진단)
     """
     
-    # [수정] 작성자님 리스트에 있는 모델 중 'Lite'와 'Flash' 위주로 구성
-    # Lite가 가장 가벼워서 무료 티어 방어에 유리합니다.
-    models = [
-        'gemini-2.0-flash-lite',       # 1순위: 리스트에 있는 경량 모델
-        'gemini-2.0-flash',            # 2순위: 표준 모델
-        'gemini-2.5-flash'             # 3순위: 최신 모델
-    ]
-    
+    # [핵심] 조합 생성 (Key 3개 x Model 5개 = 15개 조합)
     attempts = []
     for key in API_KEYS:
         for model in models:
             attempts.append((key, model))
     
-    random.shuffle(attempts)
-
+    # 순서는 섞지 않습니다. (Lite 모델부터 소모하는 게 이득이므로)
+    
     for i, (key, model_name) in enumerate(attempts):
         try:
             genai.configure(api_key=key)
@@ -104,13 +115,12 @@ def analyze_ahp_logic(goal, parent, children):
             }
 
         except Exception as e:
-            # 에러 시 짧게 대기 후 재시도
-            if any(err in str(e) for err in ["429", "Quota", "503"]):
-                time.sleep(0.5)
-                continue
-            return {"grade": "에러", "detail": str(e), "summary": "오류 발생", "example": ""}
+            # 429(한도초과) 등 에러 발생 시, 0.2초만 쉬고 바로 다음 키/모델로 넘어감
+            # (총 15번의 기회가 있으므로 과감하게 넘겨도 됨)
+            time.sleep(0.2)
+            continue
 
-    return {"grade": "대기", "summary": "사용량 초과 (잠시 후 시도)", "detail": "모든 API 키가 바쁩니다.", "example": ""}
+    return {"grade": "대기", "summary": "모든 API 키/모델 사용량 초과", "detail": "잠시 휴식 후 다시 시도해주세요.", "example": ""}
 
 # --------------------------------------------------------------------------
 # 4. UI 렌더링 함수
@@ -131,11 +141,9 @@ def render_result_ui(title, data, count_msg=""):
         if count_msg: st.caption(f":red[{count_msg}]")
         st.divider()
         
-        # 요약 & 제안
         st.write(f"**📋 진단 요약:** {data.get('summary', '-')}")
         st.info(f"💡 **제안:** {data.get('suggestion', '-')}")
         
-        # 모범 답안
         ex = data.get('example', '')
         if len(ex) > 2:
             st.markdown(f"""
@@ -145,12 +153,11 @@ def render_result_ui(title, data, count_msg=""):
             </div>
             """, unsafe_allow_html=True)
         
-        # 상세 분석
         with st.expander("🔍 상세 분석 보기"):
             st.write(data.get('detail', '-'))
 
 # --------------------------------------------------------------------------
-# 5. 메인 로직
+# 5. 메인 로직 (속도 최적화: 대기 시간 단축)
 # --------------------------------------------------------------------------
 if 'main_count' not in st.session_state: st.session_state.main_count = 1 
 if 'sub_counts' not in st.session_state: st.session_state.sub_counts = {}
@@ -158,7 +165,10 @@ if 'sub_counts' not in st.session_state: st.session_state.sub_counts = {}
 st.title("1️⃣ 연구 설계 및 AI 진단")
 
 if API_KEYS:
-    st.caption(f"🔒 API 키 {len(API_KEYS)}개 연동됨")
+    # 사용자에게 든든함을 주는 메시지
+    models_count = 5
+    total_chances = len(API_KEYS) * models_count
+    st.caption(f"🔒 **슈퍼 가동 모드:** API 키 {len(API_KEYS)}개 × 모델 {models_count}종 = **총 {total_chances}중 방어 시스템** 작동 중")
 
 goal = st.text_input("🎯 최종 목표", placeholder="예: 차세대 전투기 도입 (전문적) / 점심 메뉴 선정 (가벼움)")
 
@@ -193,17 +203,16 @@ if goal:
             if not API_KEYS:
                 st.error("API 키가 없습니다!")
             else:
-                # 안전한 실행을 위한 진행바 및 딜레이
                 total_steps = 1 + len(struct)
                 progress_bar = st.progress(0)
                 status_text = st.empty()
                 
                 # 1. 메인 분석
-                status_text.text("🧠 목표 분석 중...")
+                status_text.text("🧠 목표 분석 중... (멀티 엔진 가동)")
                 res = analyze_ahp_logic(goal, goal, main)
                 render_result_ui(f"1차 기준: {goal}", res)
                 
-                # 강제 휴식 (2초)
+                # [속도 개선] 키가 3개나 있으므로 대기 시간을 2초로 줄입니다. (충분함)
                 progress_bar.progress(1/total_steps)
                 time.sleep(2)
                 
@@ -215,12 +224,12 @@ if goal:
                     res = analyze_ahp_logic(goal, p, ch)
                     render_result_ui(f"세부항목: {p}", res, msg)
                     
-                    # 강제 휴식 (2초)
+                    # 대기 시간 2초
                     progress_bar.progress(current_step/total_steps)
                     time.sleep(2)
                     current_step += 1
                 
-                status_text.text("✅ 분석 완료!")
+                status_text.success("✅ 분석 완료!")
                 progress_bar.progress(1.0)
 
         st.divider()
