@@ -15,69 +15,44 @@ st.set_page_config(page_title="연구 설계 및 진단", page_icon="🧠", layo
 API_KEYS = []
 
 if "gemini_keys" in st.secrets:
-    # secrets.toml에 리스트로 저장된 키를 가져옴
     API_KEYS = st.secrets["gemini_keys"]
 elif "GOOGLE_API_KEY" in st.secrets:
-    # 혹시 키가 하나만 저장된 경우 (구버전 호환)
     API_KEYS = [st.secrets["GOOGLE_API_KEY"]]
 
-# 키가 하나도 없으면 에러 처리
 if not API_KEYS:
     st.error("🚨 설정된 API 키가 없습니다! Streamlit Secrets에 'gemini_keys'를 설정해주세요.")
     st.stop()
 
 # --------------------------------------------------------------------------
-# 2. 스마트 AI 호출 함수 (키 로테이션 + 모델 로테이션)
+# 2. 스마트 AI 호출 함수 (키 로테이션)
 # --------------------------------------------------------------------------
 def call_ai_with_rotation(prompt):
-    """
-    Secrets에 저장된 여러 개의 키와 여러 개의 모델을 조합하여
-    성공할 때까지 무한 로테이션을 수행하는 함수
-    """
-    # 사용 가능한 모델 리스트 (Flash/Lite 계열 위주)
     models = ['gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-2.0-flash-lite']
     
-    # 시도할 조합 생성
     attempts = []
     for key in API_KEYS:
         for model in models:
             attempts.append((key, model))
     
-    # (선택사항) 특정 키에만 부하가 몰리지 않게 순서를 섞음
     random.shuffle(attempts)
-
-    last_error = ""
 
     for i, (key, model_name) in enumerate(attempts):
         try:
-            # 1. 키 설정
             genai.configure(api_key=key)
-            
-            # 2. 모델 설정
             model = genai.GenerativeModel(model_name)
-            
-            # 3. 요청
             response = model.generate_content(prompt)
-            return response.text # 성공 시 텍스트 반환
-
+            return response.text
         except Exception as e:
             error_msg = str(e)
-            last_error = error_msg
-            
-            # 429(사용량), 503(서버), 403(키 오류) 등은 다음 시도로 넘어감
             if any(err in error_msg for err in ["429", "Quota", "503", "403"]):
-                # 아주 짧게 대기 후 바로 다음 타자 등판
                 time.sleep(0.2)
                 continue
             else:
-                # 문법 오류 등 치명적 에러는 바로 중단
                 return f"[ERROR] {error_msg}"
-
-    # 모든 키와 모델을 다 써봤는데도 실패한 경우
     return None
 
 # --------------------------------------------------------------------------
-# 3. 분석 로직 (파싱 및 래퍼)
+# 3. 분석 로직
 # --------------------------------------------------------------------------
 def analyze_ahp_logic(goal, parent, children):
     if not children:
@@ -101,22 +76,14 @@ def analyze_ahp_logic(goal, parent, children):
     [DETAIL] 상세 분석
     """
     
-    # [핵심] 로테이션 함수 호출
     result_text = call_ai_with_rotation(prompt)
     
     if result_text is None:
-        return {
-            "grade": "⏳ 대기",
-            "summary": "모든 API 키 한도 초과",
-            "suggestion": "키를 더 추가하거나 잠시 후 시도하세요.",
-            "example": "",
-            "detail": "준비된 모든 API 키의 사용량이 소진되었습니다."
-        }
+        return {"grade": "⏳ 대기", "summary": "API 키 한도 초과", "suggestion": "잠시 후 시도하세요.", "example": "", "detail": ""}
     
     if "[ERROR]" in result_text:
          return {"grade": "에러", "detail": result_text}
 
-    # 파싱 로직
     def extract(tag, t):
         match = re.search(fr"\[\s*{tag}\s*\](.*?)(?=\[\s*[A-Z]+\s*\]|$)", t, re.DOTALL | re.IGNORECASE)
         if match:
@@ -164,11 +131,8 @@ if 'sub_counts' not in st.session_state: st.session_state.sub_counts = {}
 
 st.title("1️⃣ 연구 설계 및 AI 진단")
 
-# API 키 상태 표시 (보안을 위해 개수만 표시)
 if API_KEYS:
-    st.caption(f"🔒 **보안 모드 작동 중:** {len(API_KEYS)}개의 API 키가 로테이션 대기 중입니다.")
-else:
-    st.error("🚨 Secrets에 API 키가 없습니다.")
+    st.caption(f"🔒 **보안 모드:** {len(API_KEYS)}개의 API 키 로테이션 중")
 
 goal = st.text_input("🎯 최종 목표", placeholder="예: 차세대 전투기 도입")
 
@@ -200,19 +164,22 @@ if goal:
 
         st.divider()
         if st.button("🚀 AI 진단 시작", type="primary"):
-            with st.spinner("🧠 보안 키 로테이션 가동! 고속 분석 중..."):
-                # 1. 메인 분석
+            with st.spinner("🧠 분석 중..."):
                 res = analyze_ahp_logic(goal, goal, main)
                 render_result_ui(f"1차 기준: {goal}", res)
                 
-                # 2. 세부 항목 분석
-                # (키가 여러 개이므로 대기 시간 없이 바로바로 실행)
                 for p, ch in struct.items():
                     msg = "⚠️ 항목 과다" if len(ch) >= 8 else ""
                     res = analyze_ahp_logic(goal, p, ch)
                     render_result_ui(f"세부항목: {p}", res, msg)
 
+        # [여기가 핵심 수정 사항입니다!]
         st.divider()
-        if st.button("💾 구조 확정 및 설문 배포"):
-            st.session_state['passed'] = {"goal": goal, "main": main, "sub": struct}
-            st.success("✅ 저장 완료! [2_설문_진행] 메뉴로 이동하세요.")
+        if st.button("💾 구조 확정 및 설문 배포하러 가기"):
+            # 2번 페이지가 알아들을 수 있는 이름(main_criteria 등)으로 맞춰서 저장
+            st.session_state['passed_structure'] = {
+                "goal": goal,
+                "main_criteria": main,    # 2번 페이지 호환용 이름
+                "sub_criteria": struct    # 2번 페이지 호환용 이름
+            }
+            st.success("✅ 구조가 저장되었습니다! 왼쪽 메뉴의 [2_설문_진행]으로 이동하세요.")
