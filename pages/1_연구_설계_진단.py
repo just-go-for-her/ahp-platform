@@ -25,7 +25,7 @@ if api_key:
         pass
 
 # --------------------------------------------------------------------------
-# 3. AI 분석 함수 (Slow & Steady 전략)
+# 3. AI 분석 함수 (파싱 로직 강화)
 # --------------------------------------------------------------------------
 def analyze_ahp_logic(goal, parent, children):
     if not children:
@@ -34,6 +34,7 @@ def analyze_ahp_logic(goal, parent, children):
             "suggestion": "항목 추가 필요", "example": "추천 없음", "detail": "데이터 없음"
         }
     
+    # [프롬프트 수정] 괄호 쓰지 말라고 명시
     prompt = f"""
     [역할] AHP 구조 진단 컨설턴트
     [대상] 목표: {goal} / 상위항목: {parent} / 하위항목들: {children}
@@ -41,16 +42,16 @@ def analyze_ahp_logic(goal, parent, children):
     [지침]
     1. 논리적(독립성, MECE)으로 문제가 없다면 '양호' 등급을 주어라.
     2. [EXAMPLE]에는 현재 계층에 적합한 **핵심 키워드 3~5개**를 명사형으로 나열하라. (설명 금지)
+    3. **중요:** 출력 값에 대괄호 []나 특수기호를 불필요하게 넣지 마라. 깔끔한 텍스트만 출력하라.
     
     [필수 출력 태그]
-    [GRADE] (양호/주의/위험)
-    [SUMMARY] (3줄 요약)
-    [SUGGESTION] (1줄 제안)
-    [EXAMPLE] (3~5개의 모범 항목 리스트)
-    [DETAIL] (상세 분석)
+    [GRADE] 양호/주의/위험 (단어만 출력)
+    [SUMMARY] 3줄 요약 (명확하게)
+    [SUGGESTION] 1줄 제안 (구체적으로)
+    [EXAMPLE] 3~5개의 모범 항목 리스트 (단어만 나열)
+    [DETAIL] 상세 분석 내용
     """
     
-    # 모델 리스트
     models_to_try = [
         'gemini-2.5-flash',
         'gemini-2.0-flash',
@@ -59,17 +60,24 @@ def analyze_ahp_logic(goal, parent, children):
     
     last_error = ""
 
-    for i, model_name in enumerate(models_to_try):
+    for model_name in models_to_try:
         try:
-            # 모델 생성 및 요청
             model = genai.GenerativeModel(model_name)
             response = model.generate_content(prompt)
             text = response.text
             
-            # 정규표현식 파싱
+            # [수정됨] 강력한 정규표현식 & 청소 로직
             def extract(tag, t):
-                match = re.search(fr"\[{tag}\](.*?)(?=\[|$)", t, re.DOTALL)
-                return match.group(1).strip() if match else "내용 없음"
+                # 1. 태그 안의 내용 추출 (대소문자 무시, 태그 사이 공백 허용)
+                pattern = fr"\[\s*{tag}\s*\](.*?)(?=\[\s*[A-Z]+\s*\]|$)"
+                match = re.search(pattern, t, re.DOTALL | re.IGNORECASE)
+                
+                if match:
+                    content = match.group(1).strip()
+                    # 2. 내용 앞뒤에 붙은 불필요한 [], **, : 제거 (청소)
+                    content = re.sub(r"^[\s\[\*\:\-]]+|[\s\]\*\:\-]+$", "", content).strip()
+                    return content
+                return "내용 없음"
 
             data = {
                 "grade": extract("GRADE", text),
@@ -83,55 +91,59 @@ def analyze_ahp_logic(goal, parent, children):
                 data["grade"] = "주의"
                 data["detail"] = text
             
-            # 성공 시 바로 반환
             return data
 
         except Exception as e:
             error_msg = str(e)
             last_error = error_msg
-            
-            # 에러 발생 시 처리
             if "429" in error_msg or "Quota" in error_msg or "503" in error_msg:
-                # [핵심 변경] 사용자에게 진행상황을 알리고, 3초간 확실히 쉼
-                st.toast(f"⚠️ {model_name} 모델이 바빠서 다음 모델로 전환합니다...", icon="🔄")
-                time.sleep(3) # 3초 대기 (구글의 분당 제한을 피하기 위함)
+                time.sleep(1)
                 continue
             else:
                 return {"grade": "에러", "detail": f"시스템 오류: {error_msg}"}
 
-    # 모든 모델 실패 시
     return {
         "grade": "⏳ 대기 필요",
-        "summary": "현재 사용자가 너무 많아 AI가 응답하지 못했습니다.",
-        "suggestion": "약 1분 뒤에 천천히 다시 시도해주세요.",
+        "summary": "AI 사용량이 많아 잠시 지연되고 있습니다.",
+        "suggestion": "약 30초 뒤에 다시 시도해주세요.",
         "example": "잠시 휴식",
-        "detail": f"모든 모델이 한도 초과입니다. 잠시 휴식 후 시도해주세요.\n(Last Error: {last_error})"
+        "detail": f"모든 모델 응답 불가. (Last Error: {last_error})"
     }
 
 # --------------------------------------------------------------------------
-# 4. UI 렌더링 함수
+# 4. UI 렌더링 함수 (디자인 개선)
 # --------------------------------------------------------------------------
 def render_result_ui(title, data, count_msg=""):
     grade = data.get('grade', '정보없음')
     
-    if "위험" in grade or "에러" in grade: icon, color, bg = "🚨", "red", "#fee"
-    elif "주의" in grade: icon, color, bg = "⚠️", "orange", "#fffae5"
-    elif "양호" in grade: icon, color, bg = "✅", "green", "#eff"
-    elif "대기" in grade: icon, color, bg = "⏳", "blue", "#e7f5ff"
+    # 등급 텍스트 정제 (혹시 모를 괄호 제거)
+    grade_clean = grade.replace("[", "").replace("]", "").strip()
+    
+    if "위험" in grade_clean or "에러" in grade_clean: icon, color, bg = "🚨", "red", "#fee"
+    elif "주의" in grade_clean: icon, color, bg = "⚠️", "orange", "#fffae5"
+    elif "양호" in grade_clean: icon, color, bg = "✅", "green", "#eff"
+    elif "대기" in grade_clean: icon, color, bg = "⏳", "blue", "#e7f5ff"
     else: icon, color, bg = "❓", "gray", "#eee"
 
     with st.container(border=True):
         c1, c2 = st.columns([3, 1])
         c1.markdown(f"#### {icon} {title}")
-        c2.markdown(f"**등급: :{color}[{grade}]**")
+        # 등급 표시 깔끔하게
+        c2.markdown(f"**등급: :{color}[{grade_clean}]**")
         
         if count_msg: st.caption(f":red[{count_msg}]")
         st.divider()
-        st.markdown(f"**📋 요약:** {data.get('summary', '')}")
         
-        if "양호" in grade: st.success(f"💡 **제안:** {data.get('suggestion', '')}")
-        else: st.warning(f"💡 **제안:** {data.get('suggestion', '')}")
+        # 요약 및 제안
+        st.markdown(f"**📋 요약**")
+        st.write(data.get('summary', ''))
         
+        if "양호" in grade_clean: 
+            st.success(f"💡 **제안:** {data.get('suggestion', '')}")
+        else: 
+            st.warning(f"💡 **제안:** {data.get('suggestion', '')}")
+        
+        # 추천 예시 박스
         example_text = data.get('example', '')
         if len(example_text) > 2 and "없음" not in example_text:
             st.markdown(f"""
@@ -183,24 +195,21 @@ if goal:
                 structure_data[criterion] = sub_items
 
         st.divider()
-        # [AI 진단 버튼]
         if st.button("🚀 AI 진단 시작", type="primary"):
-            # 로딩 문구에 팁 추가
-            with st.spinner("🧠 분석 중... (오류 발생 시 자동으로 다른 모델을 시도합니다)"):
+            with st.spinner("🧠 AI 전문가 군단(Gemini 2.5/2.0)이 분석 중입니다..."):
                 res = analyze_ahp_logic(goal, goal, main_criteria)
                 render_result_ui(f"1차 기준: {goal}", res)
                 
-                # [중요] 루프 안에서도 API 호출 간격을 강제로 띄움
-                time.sleep(1) 
+                # 호출 간격 조절
+                time.sleep(1)
                 
                 for p, c in structure_data.items():
                     msg = ""
                     if len(c) >= 8: msg = f"⚠️ 항목 과다 (7개 이하 권장)"
                     res = analyze_ahp_logic(goal, p, c)
                     render_result_ui(f"세부항목: {p}", res, msg)
-                    time.sleep(1) # 연속 호출 방지
+                    time.sleep(1)
 
-        # [데이터 전송 버튼]
         st.divider()
         st.markdown("### 📤 설문 생성 단계")
         st.caption("구조가 확정되었다면 아래 버튼을 눌러 설문 도구로 이동하세요.")
