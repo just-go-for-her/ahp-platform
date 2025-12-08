@@ -160,16 +160,10 @@ if selected_file:
     
     if st.button("🧮 분석 실행 (리포트 생성)", type="primary"):
         
-        # 1. 집단 분석용 (평균 내기 전 데이터)
-        valid_data_rows = []    
+        valid_data_rows = []    # 집단 분석용 (단순 취합)
+        individual_detail_rows = [] # 개인별 상세 (순위 포함)
+        status_list = []        # 현황판
         
-        # 2. 개인별 상세 분석용 (사이트 포맷 그대로 + 이름표)
-        individual_detail_rows = []
-        
-        # 3. 응답 현황용
-        status_list = []        
-        
-        # 분석 루프
         for idx, row in df.iterrows():
             try:
                 res_rows, person_cr = process_single_response(row['Raw_Data'])
@@ -186,19 +180,25 @@ if selected_file:
                 status_list.append(status)
                 
                 if is_valid:
-                    # 집단 분석용에는 순수 데이터만 (나중에 mean 할 것)
                     valid_data_rows.extend(res_rows)
                     
-                    # [핵심] 개인별 데이터에는 '누가' 했는지 태그를 붙여서 저장
-                    for r in res_rows:
-                        # 기존 사이트 분석 포맷(r)에 사람 정보 추가
-                        personal_row = r.copy()
-                        personal_row['응답자'] = row.get('Respondent', '익명')
-                        personal_row['작성시간'] = row['Time']
-                        personal_row['CR'] = round(person_cr, 4)
-                        
-                        # 보기 좋게 컬럼 순서 정렬을 위해 딕셔너리 재구성 (나중에 DF에서 정렬)
-                        individual_detail_rows.append(personal_row)
+                    # [핵심] 개인별 순위 매기기 로직
+                    # 1. 이 사람의 데이터만으로 DataFrame 생성
+                    person_df = pd.DataFrame(res_rows)
+                    
+                    # 2. 종합 가중치 기준으로 내림차순 정렬
+                    person_df = person_df.sort_values(by='종합 가중치', ascending=False)
+                    
+                    # 3. 순위 부여 (1등부터 N등까지)
+                    person_df['순위'] = range(1, len(person_df) + 1)
+                    
+                    # 4. 인적사항 컬럼 추가 (맨 앞에)
+                    person_df.insert(0, '응답자', row.get('Respondent', '익명'))
+                    person_df.insert(1, '작성시간', row['Time'])
+                    person_df.insert(2, 'CR', round(person_cr, 4))
+                    
+                    # 5. 마스터 리스트에 추가
+                    individual_detail_rows.extend(person_df.to_dict('records'))
                     
             except Exception as e:
                 continue 
@@ -207,7 +207,7 @@ if selected_file:
         # 화면 출력
         # -------------------------------------------------------
         
-        # 1. 유효성 검사 표
+        # 1. 유효성 검사
         st.markdown("### 1️⃣ 데이터 유효성 검증")
         status_df = pd.DataFrame(status_list)
         if not status_df.empty:
@@ -231,31 +231,24 @@ if selected_file:
             st.dataframe(disp_df.style.background_gradient(subset=['종합 가중치'], cmap='Blues'), use_container_width=True)
 
             # -------------------------------------------------------
-            # [엑셀 다운로드] 사이트 분석 포맷 그대로 저장
+            # [엑셀 다운로드]
             # -------------------------------------------------------
             st.divider()
             st.markdown("### 📥 상세 리포트 다운로드")
             
-            # 개인별 상세 데이터 프레임 만들기
+            # 개인별 상세 데이터 (순위 포함됨)
             personal_df = pd.DataFrame(individual_detail_rows)
-            # 컬럼 순서 예쁘게 정리 (응답자 정보 -> 기준 정보 -> 점수)
-            cols = ['응답자', '작성시간', 'CR', '1차 기준', '1차 가중치', '2차 항목', '2차 가중치', '종합 가중치']
-            # 만약 데이터에 없는 컬럼이 있을 수 있으니 교집합으로 처리
+            
+            # 컬럼 순서 정리
+            cols = ['응답자', '작성시간', 'CR', '순위', '1차 기준', '1차 가중치', '2차 항목', '2차 가중치', '종합 가중치']
             valid_cols = [c for c in cols if c in personal_df.columns]
             personal_df = personal_df[valid_cols]
 
             output = io.BytesIO()
             with pd.ExcelWriter(output, engine='openpyxl') as writer:
-                # 시트 1: 종합 순위 (집단)
                 disp_df.to_excel(writer, index=False, sheet_name='종합_순위_분석')
-                
-                # 시트 2: 개인별 상세 결과 (사이트 분석 포맷)
                 personal_df.to_excel(writer, index=False, sheet_name='개인별_상세_결과')
-                
-                # 시트 3: 응답 현황
                 status_df.to_excel(writer, index=False, sheet_name='응답자_현황_및_CR')
-                
-                # 시트 4: 원본
                 df.to_excel(writer, index=False, sheet_name='원본_RAW_데이터')
             
             st.download_button(
@@ -266,7 +259,6 @@ if selected_file:
                 type="primary"
             )
             
-            # (선택) 화면에서도 개인별 데이터를 살짝 보여줄까요?
             with st.expander("🔍 개인별 상세 분석 데이터 미리보기"):
                 st.dataframe(personal_df)
             
