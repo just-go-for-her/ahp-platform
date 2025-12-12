@@ -117,7 +117,7 @@ if not is_respondent:
                 st.info(f"💡 팁: 응답자는 링크만 누르면 됩니다. 비밀번호는 묻지 않습니다.")
 
 # ------------------------------------------------------------------
-# [MODE B] 응답자: 설문 진행 (중복 순위 방지 적용)
+# [MODE B] 응답자: 설문 진행 (순위 강제 로직 포함)
 # ------------------------------------------------------------------
 else:
     st.title(f"📝 {survey_data['goal']}")
@@ -252,7 +252,6 @@ else:
                 initialRanks.push(val);
             }}
             
-            // [추가됨] 중복 순위 체크 로직
             const rankSet = new Set(initialRanks);
             if(rankSet.size !== initialRanks.length) {{
                 alert("⚠️ 중복된 순위가 있습니다!\\n각 항목에 서로 다른 순위를 지정해주세요.");
@@ -287,6 +286,9 @@ else:
             document.getElementById('rank-hint-b').innerText = `(예상 ${{initialRanks[p.c]}}위)`;
             document.getElementById('slider').value = 0;
             updateLabel();
+            
+            // 진행률 표시
+            document.getElementById('progress').innerText = (pairIdx + 1) + " / " + pairs.length;
         }}
 
         function updateLabel() {{
@@ -304,9 +306,30 @@ else:
         }}
 
         function checkConsistency() {{
+            // 1. 순위 기반 검증 (여기에 추가된 로직)
             const sliderVal = parseInt(document.getElementById('slider').value);
-            let weight = sliderVal === 0 ? 1 : (sliderVal < 0 ? Math.abs(sliderVal) + 1 : 1 / (sliderVal + 1));
             const p = pairs[pairIdx];
+            const rankA = parseInt(initialRanks[p.r]);
+            const rankB = parseInt(initialRanks[p.c]);
+
+            // rankA가 더 작으면(ex: 1위) A가 더 중요해야 함(Slider < 0 or 0)
+            if (rankA < rankB) {{
+                if (sliderVal > 0) {{
+                    alert(`⚠️ 처음 설정한 순위와 다릅니다.\\n\\n'${{p.a}}'(${{rankA}}위)를 '${{p.b}}'(${{rankB}}위)보다 높게 설정하셨습니다.\\n하지만 지금은 '${{p.b}}'가 더 중요하다고 선택했습니다.\\n\\n순위에 맞게 슬라이더를 왼쪽으로 조정해주세요.`);
+                    return; // 다음 페이지로 안 넘어감
+                }}
+            }}
+            // rankB가 더 작으면(ex: 1위) B가 더 중요해야 함(Slider > 0 or 0)
+            else if (rankA > rankB) {{
+                if (sliderVal < 0) {{
+                    alert(`⚠️ 처음 설정한 순위와 다릅니다.\\n\\n'${{p.b}}'(${{rankB}}위)를 '${{p.a}}'(${{rankA}}위)보다 높게 설정하셨습니다.\\n하지만 지금은 '${{p.a}}'가 더 중요하다고 선택했습니다.\\n\\n순위에 맞게 슬라이더를 오른쪽으로 조정해주세요.`);
+                    return; // 다음 페이지로 안 넘어감
+                }}
+            }}
+
+            // 2. AHP 일관성(수학적) 검증 (기존 로직)
+            let weight = sliderVal === 0 ? 1 : (sliderVal < 0 ? Math.abs(sliderVal) + 1 : 1 / (sliderVal + 1));
+            
             const n = items.length;
             let conflict = false;
             let logicalW = 0;
