@@ -160,9 +160,10 @@ if selected_file:
     
     if st.button("🧮 분석 실행 (리포트 생성)", type="primary"):
         
-        valid_data_rows = []    # 집단 분석용 (단순 취합)
-        individual_detail_rows = [] # 개인별 상세 (순위 포함)
-        status_list = []        # 현황판
+        valid_data_rows = []        # 집단 분석용 (유효 데이터만 취합)
+        individual_detail_rows = [] # 유효한 개인별 상세 (순위 포함)
+        invalid_detail_rows = []    # [추가됨] 부적합 개인별 상세 (순위 포함)
+        status_list = []            # 현황판
         
         for idx, row in df.iterrows():
             try:
@@ -170,6 +171,8 @@ if selected_file:
                 if res_rows is None: continue
 
                 is_valid = person_cr <= 0.1
+                
+                # 1. 현황판용 데이터 (화면 표시용)
                 status = {
                     "순번": idx + 1,
                     "응답자": row.get('Respondent', '익명'),
@@ -179,26 +182,24 @@ if selected_file:
                 }
                 status_list.append(status)
                 
+                # 2. 개인별 상세 데이터 가공 (공통)
+                person_df = pd.DataFrame(res_rows)
+                person_df = person_df.sort_values(by='종합 가중치', ascending=False)
+                person_df['순위'] = range(1, len(person_df) + 1)
+                
+                # 인적사항 및 CR 정보 추가
+                person_df.insert(0, '응답자', row.get('Respondent', '익명'))
+                person_df.insert(1, '작성시간', row['Time'])
+                person_df.insert(2, 'CR', round(person_cr, 4))
+                
+                # 3. 유효성 여부에 따른 분리 저장
                 if is_valid:
+                    # 유효함 -> 종합 분석 및 유효 상세 리스트에 추가
                     valid_data_rows.extend(res_rows)
-                    
-                    # [핵심] 개인별 순위 매기기 로직
-                    # 1. 이 사람의 데이터만으로 DataFrame 생성
-                    person_df = pd.DataFrame(res_rows)
-                    
-                    # 2. 종합 가중치 기준으로 내림차순 정렬
-                    person_df = person_df.sort_values(by='종합 가중치', ascending=False)
-                    
-                    # 3. 순위 부여 (1등부터 N등까지)
-                    person_df['순위'] = range(1, len(person_df) + 1)
-                    
-                    # 4. 인적사항 컬럼 추가 (맨 앞에)
-                    person_df.insert(0, '응답자', row.get('Respondent', '익명'))
-                    person_df.insert(1, '작성시간', row['Time'])
-                    person_df.insert(2, 'CR', round(person_cr, 4))
-                    
-                    # 5. 마스터 리스트에 추가
                     individual_detail_rows.extend(person_df.to_dict('records'))
+                else:
+                    # 부적합 -> 부적합 상세 리스트에만 추가 (종합 분석 제외)
+                    invalid_detail_rows.extend(person_df.to_dict('records'))
                     
             except Exception as e:
                 continue 
@@ -207,17 +208,19 @@ if selected_file:
         # 화면 출력
         # -------------------------------------------------------
         
-        # 1. 유효성 검사
-        st.markdown("### 1️⃣ 데이터 유효성 검증")
+        # 1. 유효성 검사 현황판
+        st.markdown("### 1️⃣ 데이터 유효성 검증 현황")
         status_df = pd.DataFrame(status_list)
+        
         if not status_df.empty:
             def color_val(val):
-                return 'background-color: #e6fcf5' if val == 'O' else 'background-color: #fff5f5'
+                return 'background-color: #e6fcf5' if val == 'O' else 'background-color: #fff5f5; color: red;'
             st.dataframe(status_df.style.applymap(color_val, subset=['유효판정']), use_container_width=True)
+            
             valid_count = len(status_df[status_df['유효판정'] == 'O'])
-            st.info(f"총 {len(status_df)}명 중 **{valid_count}명(O)**의 데이터로 분석합니다.")
+            st.info(f"총 {len(status_df)}명 중 **{valid_count}명(O)**의 데이터만 종합 분석에 반영됩니다.")
         
-        # 2. 종합 순위 (집단 평균)
+        # 2. 종합 순위 (집단 평균) - 유효한 데이터만 사용
         if valid_data_rows:
             res_df = pd.DataFrame(valid_data_rows)
             final_df = res_df.groupby(['1차 기준', '2차 항목']).mean(numeric_only=True).reset_index()
@@ -227,7 +230,7 @@ if selected_file:
             disp_df = final_df[['순위', '1차 기준', '2차 항목', '종합 가중치']]
             
             st.divider()
-            st.markdown("### 🏆 2️⃣ 최종 종합 순위 (집단 평균)")
+            st.markdown("### 🏆 2️⃣ 최종 종합 순위 (유효 데이터 기준)")
             st.dataframe(disp_df.style.background_gradient(subset=['종합 가중치'], cmap='Blues'), use_container_width=True)
 
             # -------------------------------------------------------
@@ -236,19 +239,35 @@ if selected_file:
             st.divider()
             st.markdown("### 📥 상세 리포트 다운로드")
             
-            # 개인별 상세 데이터 (순위 포함됨)
-            personal_df = pd.DataFrame(individual_detail_rows)
+            # DataFrame 변환
+            personal_valid_df = pd.DataFrame(individual_detail_rows) # 유효
+            personal_invalid_df = pd.DataFrame(invalid_detail_rows)  # 부적합 [추가됨]
             
-            # 컬럼 순서 정리
+            # 컬럼 순서 정리 (보기 좋게)
             cols = ['응답자', '작성시간', 'CR', '순위', '1차 기준', '1차 가중치', '2차 항목', '2차 가중치', '종합 가중치']
-            valid_cols = [c for c in cols if c in personal_df.columns]
-            personal_df = personal_df[valid_cols]
+            
+            if not personal_valid_df.empty:
+                personal_valid_df = personal_valid_df[[c for c in cols if c in personal_valid_df.columns]]
+            
+            if not personal_invalid_df.empty:
+                personal_invalid_df = personal_invalid_df[[c for c in cols if c in personal_invalid_df.columns]]
 
             output = io.BytesIO()
             with pd.ExcelWriter(output, engine='openpyxl') as writer:
+                # 시트 1: 종합 순위 (유효값 기준)
                 disp_df.to_excel(writer, index=False, sheet_name='종합_순위_분석')
-                personal_df.to_excel(writer, index=False, sheet_name='개인별_상세_결과')
+                
+                # 시트 2: 유효한 개인별 상세
+                personal_valid_df.to_excel(writer, index=False, sheet_name='개인별_상세(유효)')
+                
+                # 시트 3: [NEW] 부적합한 개인별 상세 (별도 시트)
+                if not personal_invalid_df.empty:
+                    personal_invalid_df.to_excel(writer, index=False, sheet_name='부적합_상세_결과')
+                
+                # 시트 4: 전체 응답자 현황 (O/X 확인용)
                 status_df.to_excel(writer, index=False, sheet_name='응답자_현황_및_CR')
+                
+                # 시트 5: 원본 RAW 데이터
                 df.to_excel(writer, index=False, sheet_name='원본_RAW_데이터')
             
             st.download_button(
@@ -259,11 +278,31 @@ if selected_file:
                 type="primary"
             )
             
-            with st.expander("🔍 개인별 상세 분석 데이터 미리보기"):
-                st.dataframe(personal_df)
+            if not personal_invalid_df.empty:
+                with st.expander("⚠️ 부적합 데이터(CR > 0.1) 미리보기"):
+                    st.warning("아래 데이터는 일관성이 부족하여 종합 분석에서 제외되었습니다. 엑셀의 '부적합_상세_결과' 시트에서 확인 가능합니다.")
+                    st.dataframe(personal_invalid_df)
             
         else:
-            st.error("유효한 데이터가 없어 분석할 수 없습니다.")
+            st.error("유효한 데이터(CR <= 0.1)가 하나도 없어 종합 분석을 수행할 수 없습니다.")
+            
+            # 유효한 데이터가 없더라도 부적합 데이터만이라도 엑셀로 받고 싶을 수 있으므로 다운로드 버튼 제공
+            if invalid_detail_rows:
+                st.warning("하지만 부적합 데이터에 대한 상세 내역은 다운로드할 수 있습니다.")
+                personal_invalid_df = pd.DataFrame(invalid_detail_rows)
+                
+                output = io.BytesIO()
+                with pd.ExcelWriter(output, engine='openpyxl') as writer:
+                    personal_invalid_df.to_excel(writer, index=False, sheet_name='부적합_상세_결과')
+                    status_df.to_excel(writer, index=False, sheet_name='응답자_현황_및_CR')
+                    df.to_excel(writer, index=False, sheet_name='원본_RAW_데이터')
+                
+                st.download_button(
+                    label="📊 부적합 데이터만 다운로드 (.xlsx)",
+                    data=output.getvalue(),
+                    file_name=f"AHP_Invalid_Only_{display_name}.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                )
 
     # 초기화
     st.divider()
