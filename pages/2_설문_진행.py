@@ -1,38 +1,59 @@
 import streamlit as st
 import streamlit.components.v1 as components
 import json
-import base64
+import base64  # 이제는 안 써도 되지만, 나중 확장 생각해서 놔둬도 되고, 안 쓰면 지워도 됨
 import urllib.parse
 import pandas as pd
 from datetime import datetime
 import os
+import uuid  # 짧은 ID 생성을 위해 추가
 
 # ==============================================================================
 # [설정] 본인의 실제 배포 주소 입력
 # ==============================================================================
-FULL_URL = "https://ahp-platform-bbee45epwqjjy2zfpccz7p.streamlit.app/%EC%84%A4%EB%AC%B8_%EC%A7%84%ED%96%89" 
+FULL_URL = "https://ahp-platform-bbee45epwqjjy2zfpccz7p.streamlit.app/%EC%84%A4%EB%AC%B8_%EC%A7%84%ED%96%89"
 # ==============================================================================
+
+# 설문 구조(연구자용) 저장 디렉토리
+CONFIG_DIR = "survey_config"
+os.makedirs(CONFIG_DIR, exist_ok=True)
 
 st.set_page_config(page_title="설문 진행", page_icon="📝", layout="wide")
 
 # 1. URL 데이터 처리
 query_params = st.query_params
-encoded_data = query_params.get("data", None)
+
+# st.query_params 는 보통 { 'id': ['abcd1234'] } 형태라서 처리
+raw_id = query_params.get("id", None)
+if isinstance(raw_id, list):
+    survey_id = raw_id[0] if raw_id else None
+else:
+    survey_id = raw_id
+
 survey_data = None
 
-if encoded_data:
+# ------------------------------------------------------------------
+# [MODE B] 응답자 모드: id 로 설문 구조 불러오기
+# ------------------------------------------------------------------
+if survey_id:
+    # 응답자: 설문 링크를 통해 들어온 경우
+    config_path = os.path.join(CONFIG_DIR, f"{survey_id}.json")
+    if not os.path.exists(config_path):
+        st.error("유효하지 않은 설문 링크입니다. (설문 ID를 찾을 수 없습니다)")
+        st.stop()
+
     try:
-        decoded_b64 = urllib.parse.unquote(encoded_data)
-        decoded_bytes = base64.b64decode(decoded_b64)
-        survey_data = json.loads(decoded_bytes.decode("utf-8"))
+        with open(config_path, "r", encoding="utf-8") as f:
+            survey_data = json.load(f)
         is_respondent = True
-    except:
-        st.error("잘못된 링크입니다.")
+    except Exception as e:
+        st.error(f"설문 구성을 불러오는 중 오류가 발생했습니다: {e}")
         st.stop()
 else:
+    # 연구자: Private Mode
     is_respondent = False
-    if 'passed_structure' in st.session_state:
-        survey_data = st.session_state['passed_structure']
+    if "passed_structure" in st.session_state:
+        survey_data = st.session_state["passed_structure"]
     else:
         survey_data = None
 
@@ -41,13 +62,13 @@ else:
 # ------------------------------------------------------------------
 if not is_respondent:
     st.title("📢 설문 배포 센터 (Private Mode)")
-    
+
     if not survey_data:
         st.warning("⚠️ 확정된 구조가 없습니다. [1번 페이지]에서 구조를 먼저 확정하세요.")
         st.stop()
 
     st.success(f"**목표:** {survey_data['goal']}")
-    
+
     if "여기에" in FULL_URL:
         st.error("🚨 코드 맨 윗줄의 'FULL_URL'을 설정해주세요!")
         st.stop()
@@ -56,30 +77,38 @@ if not is_respondent:
         st.subheader("🔐 보안 설정 (관리자용)")
         st.caption("응답자는 이 비밀번호를 알 필요가 없습니다. 데이터 확인용으로 연구자만 기억하세요.")
         project_key = st.text_input(
-            "프로젝트 비밀번호(Key) 설정", 
+            "프로젝트 비밀번호(Key) 설정",
             placeholder="예: team_a (이 키는 결과 조회 시 필요합니다)",
-            type="password"
+            type="password",
         )
 
     if st.button("🔗 공유 링크 생성하기", type="primary", use_container_width=True):
         if not project_key:
             st.error("데이터 관리를 위해 비밀번호를 설정해주세요.")
         else:
+            # 연구자 구조 + secret_key 포함해서 서버에 저장할 전체 구조
             full_structure = {
-                "goal": survey_data['goal'],
-                "main_criteria": survey_data['main_criteria'],
-                "sub_criteria": survey_data['sub_criteria'],
-                "secret_key": project_key
+                "goal": survey_data["goal"],
+                "main_criteria": survey_data["main_criteria"],
+                "sub_criteria": survey_data["sub_criteria"],
+                "secret_key": project_key,
             }
-            json_str = json.dumps(full_structure, ensure_ascii=False)
-            b64_data = base64.b64encode(json_str.encode("utf-8")).decode("utf-8")
-            url_safe = urllib.parse.quote(b64_data)
-            
-            final_url = f"{FULL_URL}?data={url_safe}"
-            
+
+            # 1) 짧은 설문 ID 생성 (예: a1b2c3d4)
+            survey_id = uuid.uuid4().hex[:8]
+
+            # 2) 서버(파일)에 설문 구조 저장
+            config_path = os.path.join(CONFIG_DIR, f"{survey_id}.json")
+            with open(config_path, "w", encoding="utf-8") as f:
+                json.dump(full_structure, f, ensure_ascii=False, indent=2)
+
+            # 3) 응답자가 사용할 URL에는 id만 포함
+            final_url = f"{FULL_URL}?id={survey_id}"
+
             st.markdown("### 👇 아래 버튼을 눌러 공유하세요")
-            
-            components.html(f"""
+
+            components.html(
+                f"""
             <style>
                 body {{ margin: 0; padding: 0; font-family: sans-serif; }}
                 .kakao-btn {{
@@ -110,28 +139,35 @@ if not is_respondent:
             <button class="kakao-btn" onclick="copyLink()">💬 카카오톡 링크 복사하기</button>
             <div id="msg" style="text-align:center; color:green; font-size:12px; margin-top:5px; height:20px;"></div>
             <button class="email-btn" onclick="sendEmail()">📧 이메일 보내기</button>
-            """, height=130)
-            
+            """,
+                height=130,
+            )
+
             with st.expander("원문 링크 보기"):
                 st.code(final_url)
-                st.info(f"💡 팁: 응답자는 링크만 누르면 됩니다. 비밀번호는 묻지 않습니다.")
+                st.info("💡 팁: 응답자는 링크만 누르면 됩니다. 비밀번호는 묻지 않습니다.")
 
 # ------------------------------------------------------------------
 # [MODE B] 응답자: 설문 진행 (순위 강제 로직 포함)
 # ------------------------------------------------------------------
 else:
     st.title(f"📝 {survey_data['goal']}")
-    
+
     tasks = []
     # 1. 1차 기준 비교
-    if len(survey_data['main_criteria']) > 1:
-        tasks.append({"name": "📂 1. 평가 기준 중요도 비교", "items": survey_data['main_criteria']})
-    
+    if len(survey_data["main_criteria"]) > 1:
+        tasks.append(
+            {
+                "name": "📂 1. 평가 기준 중요도 비교",
+                "items": survey_data["main_criteria"],
+            }
+        )
+
     # 2. 세부 항목 비교
-    for cat, items in survey_data['sub_criteria'].items():
+    for cat, items in survey_data["sub_criteria"].items():
         if len(items) > 1:
             tasks.append({"name": f"📂 2. [{cat}] 세부 항목 평가", "items": items})
-            
+
     js_tasks = json.dumps(tasks, ensure_ascii=False)
 
     html_code = f"""
@@ -306,28 +342,26 @@ else:
         }}
 
         function checkConsistency() {{
-            // 1. 순위 기반 검증 (여기에 추가된 로직)
+            // 1. 순위 기반 검증
             const sliderVal = parseInt(document.getElementById('slider').value);
             const p = pairs[pairIdx];
             const rankA = parseInt(initialRanks[p.r]);
             const rankB = parseInt(initialRanks[p.c]);
 
-            // rankA가 더 작으면(ex: 1위) A가 더 중요해야 함(Slider < 0 or 0)
             if (rankA < rankB) {{
                 if (sliderVal > 0) {{
                     alert(`⚠️ 처음 설정한 순위와 다릅니다.\\n\\n'${{p.a}}'(${{rankA}}위)를 '${{p.b}}'(${{rankB}}위)보다 높게 설정하셨습니다.\\n하지만 지금은 '${{p.b}}'가 더 중요하다고 선택했습니다.\\n\\n순위에 맞게 슬라이더를 왼쪽으로 조정해주세요.`);
-                    return; // 다음 페이지로 안 넘어감
+                    return;
                 }}
             }}
-            // rankB가 더 작으면(ex: 1위) B가 더 중요해야 함(Slider > 0 or 0)
             else if (rankA > rankB) {{
                 if (sliderVal < 0) {{
                     alert(`⚠️ 처음 설정한 순위와 다릅니다.\\n\\n'${{p.b}}'(${{rankB}}위)를 '${{p.a}}'(${{rankA}}위)보다 높게 설정하셨습니다.\\n하지만 지금은 '${{p.a}}'가 더 중요하다고 선택했습니다.\\n\\n순위에 맞게 슬라이더를 오른쪽으로 조정해주세요.`);
-                    return; // 다음 페이지로 안 넘어감
+                    return;
                 }}
             }}
 
-            // 2. AHP 일관성(수학적) 검증 (기존 로직)
+            // 2. AHP 수학적 일관성 검증
             let weight = sliderVal === 0 ? 1 : (sliderVal < 0 ? Math.abs(sliderVal) + 1 : 1 / (sliderVal + 1));
             
             const n = items.length;
@@ -397,29 +431,31 @@ else:
         st.write("📋 **데이터 제출**")
         respondent = st.text_input("응답자 성함")
         code = st.text_area("결과 코드 붙여넣기")
-        
+
         if st.form_submit_button("제출"):
             try:
-                json.loads(code)
-                goal_clean = survey_data['goal'].replace(" ", "_")
-                secret_key = survey_data.get('secret_key', 'public')
-                
+                json.loads(code)  # 형식 검증
+                goal_clean = survey_data["goal"].replace(" ", "_")
+                secret_key = survey_data.get("secret_key", "public")
+
                 if not os.path.exists("survey_data"):
                     os.makedirs("survey_data")
-                    
+
                 file_path = f"survey_data/{secret_key}_{goal_clean}.csv"
-                
+
                 save_data = {
                     "Time": datetime.now().strftime("%Y-%m-%d %H:%M"),
                     "Respondent": respondent,
-                    "Raw_Data": code
+                    "Raw_Data": code,
                 }
                 df = pd.DataFrame([save_data])
-                try: old_df = pd.read_csv(file_path)
-                except: old_df = pd.DataFrame()
+                try:
+                    old_df = pd.read_csv(file_path)
+                except:
+                    old_df = pd.DataFrame()
                 pd.concat([old_df, df], ignore_index=True).to_csv(file_path, index=False)
-                
-                st.success(f"✅ 안전하게 제출되었습니다! 감사합니다.")
+
+                st.success("✅ 안전하게 제출되었습니다! 감사합니다.")
                 st.balloons()
             except Exception as e:
                 st.error(f"오류 발생: {e}")
