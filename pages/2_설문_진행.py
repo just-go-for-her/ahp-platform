@@ -1,12 +1,12 @@
 import streamlit as st
 import streamlit.components.v1 as components
 import json
-import base64  # 이제는 안 써도 되지만, 나중 확장 생각해서 놔둬도 되고, 안 쓰면 지워도 됨
+import base64 
 import urllib.parse
 import pandas as pd
 from datetime import datetime
 import os
-import uuid  # 짧은 ID 생성을 위해 추가
+import uuid 
 
 # ==============================================================================
 # [설정] 본인의 실제 배포 주소 입력
@@ -170,6 +170,9 @@ else:
 
     js_tasks = json.dumps(tasks, ensure_ascii=False)
 
+    # ==========================================================================
+    # [수정됨] HTML/JS 코드: 5점 척도 적용 및 기하평균 추천 로직 적용
+    # ==========================================================================
     html_code = f"""
     <!DOCTYPE html>
     <html lang="ko">
@@ -189,15 +192,17 @@ else:
         
         .card {{ background: #f8f9fa; padding: 20px; border-radius: 12px; text-align: center; margin-bottom: 20px; }}
         .vs-row {{ display: flex; justify-content: space-between; font-size: 1.2em; font-weight: bold; margin-bottom: 15px; }}
-        input[type=range] {{ width: 100%; margin: 20px 0; }}
+        
+        /* 슬라이더 스타일 */
+        input[type=range] {{ width: 100%; margin: 20px 0; cursor: pointer; }}
         
         .btn {{ width: 100%; padding: 15px; background: #228be6; color: white; border: none; border-radius: 8px; font-size: 1.1em; cursor: pointer; }}
         .btn:disabled {{ background: #adb5bd; }}
         
         .modal {{ display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); justify-content: center; align-items: center; }}
-        .modal-box {{ background: white; padding: 30px; border-radius: 15px; width: 90%; max-width: 400px; text-align: center; }}
-        .logic-text {{ color: #228be6; font-weight: bold; }}
-        .user-text {{ color: #fa5252; font-weight: bold; }}
+        .modal-box {{ background: white; padding: 30px; border-radius: 15px; width: 90%; max-width: 450px; text-align: center; }}
+        .logic-text {{ color: #228be6; font-weight: bold; font-size: 1.1em; }}
+        .user-text {{ color: #fa5252; font-weight: bold; font-size: 1.1em; }}
     </style>
     </head>
     <body>
@@ -222,8 +227,8 @@ else:
                 <div style="font-size:0.9em; color:#666; margin-bottom:10px;">
                     <span id="rank-hint-a"></span> vs <span id="rank-hint-b"></span>
                 </div>
-                <input type="range" id="slider" min="-8" max="8" value="0" step="1" oninput="updateLabel()">
-                <div id="val-display" style="font-weight:bold; color:#555;">동등함</div>
+                <input type="range" id="slider" min="-4" max="4" value="0" step="1" oninput="updateLabel()">
+                <div id="val-display" style="font-weight:bold; color:#555; font-size:1.1em; margin-top:10px;">동등함</div>
             </div>
             <button class="btn" onclick="checkConsistency()">다음 질문</button>
         </div>
@@ -238,14 +243,18 @@ else:
     <div id="modal" class="modal">
         <div class="modal-box">
             <h3>⚠️ 논리적 일관성 확인</h3>
-            <p>이전 답변들과 모순될 수 있습니다.</p>
-            <div style="background:#f8f9fa; padding:15px; border-radius:8px; margin:15px 0; text-align:left;">
-                <div>🧠 추천: <span id="rec-val" class="logic-text"></span></div>
-                <div>🖐 선택: <span id="my-val" class="user-text"></span></div>
+            <p style="font-size:0.9em; color:#666;">
+                이전 응답들을 종합적으로 분석했을 때,<br>
+                논리적으로 더 적절한 값은 다음과 같습니다.
+            </p>
+            <div style="background:#f1f3f5; padding:20px; border-radius:10px; margin:20px 0; text-align:left;">
+                <div style="margin-bottom:10px;">🧠 AI 추천: <span id="rec-val" class="logic-text"></span></div>
+                <div>🖐 나의 선택: <span id="my-val" class="user-text"></span></div>
             </div>
+            <p style="font-size:0.8em; color:#888;">추천값을 따르면 데이터 신뢰도(CR)가 좋아집니다.</p>
             <div style="display:flex; gap:10px;">
-                <button class="btn" style="background:#aaa;" onclick="closeModal(false)">수정</button>
-                <button class="btn" onclick="closeModal(true)">유지</button>
+                <button class="btn" style="background:#adb5bd;" onclick="closeModal(false)">내 선택 유지</button>
+                <button class="btn" onclick="closeModal(true)">추천값으로 변경</button>
             </div>
         </div>
     </div>
@@ -253,8 +262,21 @@ else:
     <script>
         const tasks = {js_tasks};
         let currentTaskIdx = 0;
-        let items = [], pairs = [], matrix = [], pairIdx = 0, initialRanks = [], pendingVal = 0;
+        let items = [], pairs = [], matrix = [], pairIdx = 0, initialRanks = [], pendingRecWeight = 0;
         let allAnswers = {{}};
+
+        // 슬라이더 값을 실제 가중치로 변환 (1~5점 척도)
+        function getWeightFromSlider(val) {{
+            if (val === 0) return 1;
+            return val < 0 ? (Math.abs(val) + 1) : (1 / (val + 1));
+        }}
+        
+        // 가중치를 슬라이더 값으로 역변환
+        function getSliderFromWeight(w) {{
+            if (w >= 1) return Math.min(4, Math.round(w - 1)); // -4 ~ 0 (Left)
+            else return Math.min(4, Math.round((1/w) - 1));   // 0 ~ 4 (Right)
+            // 참고: 로직상 부호 처리는 별도 필요
+        }}
 
         function loadTask() {{
             if (currentTaskIdx >= tasks.length) {{
@@ -323,7 +345,6 @@ else:
             document.getElementById('slider').value = 0;
             updateLabel();
             
-            // 진행률 표시
             document.getElementById('progress').innerText = (pairIdx + 1) + " / " + pairs.length;
         }}
 
@@ -331,69 +352,109 @@ else:
             const val = parseInt(document.getElementById('slider').value);
             const disp = document.getElementById('val-display');
             const p = pairs[pairIdx];
-            if(val == 0) {{ disp.innerText = "동등함 (1:1)"; disp.style.color = "#555"; }}
-            else if(val < 0) {{ 
-                disp.innerText = p.a + " " + (Math.abs(val)+1) + "배 중요"; 
+            
+            if(val == 0) {{ 
+                disp.innerText = "동등함 (1:1)"; 
+                disp.style.color = "#555"; 
+            }} else if(val < 0) {{ 
+                // 왼쪽 중요
+                const score = Math.abs(val) + 1;
+                disp.innerText = p.a + " " + score + "배 중요"; 
                 disp.style.color = "#228be6";
             }} else {{ 
-                disp.innerText = p.b + " " + (val+1) + "배 중요"; 
+                // 오른쪽 중요
+                const score = val + 1;
+                disp.innerText = p.b + " " + score + "배 중요"; 
                 disp.style.color = "#fa5252";
             }}
         }}
 
         function checkConsistency() {{
-            // 1. 순위 기반 검증
             const sliderVal = parseInt(document.getElementById('slider').value);
             const p = pairs[pairIdx];
+            
+            // 1. 순위 검증 (Rank Reversal Check)
             const rankA = parseInt(initialRanks[p.r]);
             const rankB = parseInt(initialRanks[p.c]);
 
-            if (rankA < rankB) {{
-                if (sliderVal > 0) {{
-                    alert(`⚠️ 처음 설정한 순위와 다릅니다.\\n\\n'${{p.a}}'(${{rankA}}위)를 '${{p.b}}'(${{rankB}}위)보다 높게 설정하셨습니다.\\n하지만 지금은 '${{p.b}}'가 더 중요하다고 선택했습니다.\\n\\n순위에 맞게 슬라이더를 왼쪽으로 조정해주세요.`);
-                    return;
-                }}
+            if (rankA < rankB && sliderVal > 0) {{
+                alert(`⚠️ 순위 모순!\\n\\n'${{p.a}}'(${{rankA}}위)를 더 높게 평가했으나,\\n지금은 '${{p.b}}'가 더 중요하다고 선택했습니다.\\n\\n순위에 맞게 왼쪽으로 조정해주세요.`);
+                return;
             }}
-            else if (rankA > rankB) {{
-                if (sliderVal < 0) {{
-                    alert(`⚠️ 처음 설정한 순위와 다릅니다.\\n\\n'${{p.b}}'(${{rankB}}위)를 '${{p.a}}'(${{rankA}}위)보다 높게 설정하셨습니다.\\n하지만 지금은 '${{p.a}}'가 더 중요하다고 선택했습니다.\\n\\n순위에 맞게 슬라이더를 오른쪽으로 조정해주세요.`);
-                    return;
-                }}
+            if (rankA > rankB && sliderVal < 0) {{
+                alert(`⚠️ 순위 모순!\\n\\n'${{p.b}}'(${{rankB}}위)를 더 높게 평가했으나,\\n지금은 '${{p.a}}'가 더 중요하다고 선택했습니다.\\n\\n순위에 맞게 오른쪽으로 조정해주세요.`);
+                return;
             }}
 
-            // 2. AHP 수학적 일관성 검증
-            let weight = sliderVal === 0 ? 1 : (sliderVal < 0 ? Math.abs(sliderVal) + 1 : 1 / (sliderVal + 1));
+            // 2. AHP 기하평균 기반 추천 (Improved Recommendation Logic)
+            let currentWeight = getWeightFromSlider(sliderVal);
             
             const n = items.length;
-            let conflict = false;
-            let logicalW = 0;
-
+            let indirectEstimates = [];
+            
+            // 현재까지 입력된 매트릭스를 이용하여, i->j 로 가는 간접 경로들의 값을 수집
+            // (A->C * C->B = A->B 예측값)
             for(let k=0; k<n; k++) {{
                 if(k === p.r || k === p.c) continue;
                 if(matrix[p.r][k] !== 0 && matrix[k][p.c] !== 0) {{
-                    const predicted = matrix[p.r][k] * matrix[k][p.c];
-                    const ratio = predicted > weight ? predicted / weight : weight / predicted;
-                    if(ratio > 3.0) {{ conflict = true; logicalW = predicted; break; }}
+                    const indirectVal = matrix[p.r][k] * matrix[k][p.c];
+                    indirectEstimates.push(indirectVal);
                 }}
             }}
-            if(conflict) {{
-                showModal(logicalW, weight);
-                pendingVal = weight;
-            }} else {{
-                saveAnswer(weight);
+
+            // 간접 경로가 있다면, 기하평균 계산 (Geometric Mean)
+            if(indirectEstimates.length > 0) {{
+                // 기하평균 = exp( sum(ln(x)) / n )
+                let sumLog = indirectEstimates.reduce((acc, val) => acc + Math.log(val), 0);
+                let geoMean = Math.exp(sumLog / indirectEstimates.length);
+                
+                // 사용자가 입력한 값과 추천 값의 차이(비율) 계산
+                // 예: 사용자는 1(동등), 추천은 4(한쪽 우세) -> 비율 4.0
+                const ratio = currentWeight > geoMean ? currentWeight / geoMean : geoMean / currentWeight;
+                
+                // 임계값: 5점 척도이므로 2배 이상 차이나면 경고 (좀 더 민감하게 잡음)
+                if(ratio >= 2.0) {{
+                    showModal(geoMean, currentWeight);
+                    return; // 모달을 띄우고 함수 종료 (사용자 선택 대기)
+                }}
             }}
+
+            // 문제 없으면 저장
+            saveAnswer(currentWeight);
         }}
 
-        function showModal(logW, usrW) {{
-            const fmt = (w) => w >= 1 ? "왼쪽 " + w.toFixed(1) + "배" : "오른쪽 " + (1/w).toFixed(1) + "배";
-            document.getElementById('rec-val').innerText = fmt(logW);
+        function showModal(recW, usrW) {{
+            pendingRecWeight = recW; // 추천값 임시 저장
+            
+            // 텍스트 포맷팅 함수
+            const fmt = (w) => {{
+                if (w >= 1.1) {{
+                    let score = Math.min(5, Math.round(w)); // 최대 5로 클램핑
+                    return "왼쪽(A) " + score + "배";
+                }} else if (w <= 0.9) {{
+                    let score = Math.min(5, Math.round(1/w));
+                    return "오른쪽(B) " + score + "배";
+                }} else {{
+                    return "동등함";
+                }}
+            }};
+            
+            document.getElementById('rec-val').innerText = fmt(recW);
             document.getElementById('my-val').innerText = fmt(usrW);
             document.getElementById('modal').style.display = 'flex';
         }}
 
-        function closeModal(confirm) {{
+        function closeModal(useRecommend) {{
             document.getElementById('modal').style.display = 'none';
-            if(confirm) saveAnswer(pendingVal);
+            if(useRecommend) {{
+                // 추천값 저장 (단, 5점 척도 범위 내로 제한해야 함)
+                // 하지만 수학적 일관성을 위해 내부 값은 그대로 쓰되, 다음 화면 진행
+                saveAnswer(pendingRecWeight);
+            }} else {{
+                // 원래 사용자 값 저장
+                const sliderVal = parseInt(document.getElementById('slider').value);
+                saveAnswer(getWeightFromSlider(sliderVal));
+            }}
         }}
 
         function saveAnswer(w) {{
@@ -401,9 +462,14 @@ else:
             matrix[p.r][p.c] = w;
             matrix[p.c][p.r] = 1 / w;
             
+            // 결과 JSON에는 보기 편하게 텍스트나 근사치로 저장해도 되지만, 정확한 계산 위해 w 저장
+            // 여기서는 연구자가 볼 때 직관적인 슬라이더값 변환하여 저장
+            let logVal = 0;
+            if(w >= 1) logVal = w;         // A가 w배 중요
+            else logVal = -1 * (1/w);      // B가 (1/w)배 중요 -> 음수 표현
+            
             const taskName = tasks[currentTaskIdx].name;
-            const sliderV = document.getElementById('slider').value;
-            allAnswers[`[${{taskName}}] ${{p.a}} vs ${{p.b}}`] = sliderV;
+            allAnswers[`[${{taskName}}] ${{p.a}} vs ${{p.b}}`] = logVal.toFixed(2);
             
             pairIdx++;
             renderPair();
