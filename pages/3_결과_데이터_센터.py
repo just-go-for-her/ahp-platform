@@ -23,10 +23,22 @@ if not os.path.exists(DATA_FOLDER):
 RI_TABLE = {1: 0, 2: 0, 3: 0.58, 4: 0.90, 5: 1.12, 6: 1.24, 7: 1.32, 8: 1.41, 9: 1.45, 10: 1.49}
 
 def saaty_scale(val):
-    val = int(val)
-    if val == 0: return 1
-    elif val < 0: return 1 / (abs(val) + 1)
-    else: return val + 1
+    # [수정됨] pages/2에서 저장된 float 문자열 형태의 가중치 값을 처리
+    try:
+        val_f = float(val)
+    except (ValueError, TypeError):
+        # 값이 숫자가 아니거나 오류가 있다면 동등(1)으로 처리
+        return 1
+        
+    if val_f >= 1:
+        # A가 더 중요: val_f 자체가 가중치 값 (예: 3.00 -> 3)
+        return val_f
+    elif val_f <= -1:
+        # B가 더 중요: -1 * (B의 중요도)로 저장됨. (예: -3.00 -> 가중치는 1/3)
+        return 1 / abs(val_f)
+    else:
+        # 0이거나 -1과 1 사이의 값일 경우 (일반적으로는 1:1)
+        return 1
 
 def calculate_ahp(items, pairs_data):
     n = len(items)
@@ -202,6 +214,8 @@ if selected_file:
                     invalid_detail_rows.extend(person_df.to_dict('records'))
                     
             except Exception as e:
+                # 데이터 분석 자체에서 예외가 발생한 경우 (치명적인 오류)
+                st.warning(f"데이터 처리 중 치명적인 오류 발생 (Index {idx+1}): {e}")
                 continue 
 
         # -------------------------------------------------------
