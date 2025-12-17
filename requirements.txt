@@ -4,3 +4,4 @@ pandas
 openpyxl
 numpy
 matplotlib
+tabulate  <-- 이 줄을 추가해야 합니다.
