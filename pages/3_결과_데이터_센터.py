@@ -82,7 +82,8 @@ def process_single_response(raw_json):
 
     groups, items_in_group = {}, {}
     for full_key, val in data.items():
-        match = re.re.match(r"\[(.*?)\](.*)", full_key)
+        # [수정됨] re.re.match -> re.match
+        match = re.match(r"\[(.*?)\](.*)", full_key)
         if match:
             group_name, pair_key = match.group(1), match.group(2).strip()
             if group_name not in groups: 
@@ -275,7 +276,6 @@ if selected_file:
                 })
                 
                 # DataFrame을 Markdown 테이블로 변환 (to_markdown은 tabulate 패키지 필요)
-                # 헤더를 명시적으로 표시하기 위해 to_markdown()을 사용합니다.
                 table_markdown += disp_sub.to_markdown(index=False, floatfmt=".4f")
                 table_markdown += "\n\n" # 그룹 간 구분선
             
