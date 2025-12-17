@@ -18,12 +18,12 @@ if not os.path.exists(DATA_FOLDER):
     os.makedirs(DATA_FOLDER)
 
 # --------------------------------------------------------------------------
-# 2. AHP 계산 엔진 (기존 코드 유지)
+# 2. AHP 계산 엔진
 # --------------------------------------------------------------------------
 RI_TABLE = {1: 0, 2: 0, 3: 0.58, 4: 0.90, 5: 1.12, 6: 1.24, 7: 1.32, 8: 1.41, 9: 1.45, 10: 1.49}
 
 def saaty_scale(val):
-    # [설문 페이지 변경에 맞춰 수정된 부분: float 가중치 처리]
+    # pages/2에서 저장된 float 문자열 형태의 가중치 값을 처리
     try:
         val_f = float(val)
     except (ValueError, TypeError):
@@ -82,7 +82,7 @@ def process_single_response(raw_json):
 
     groups, items_in_group = {}, {}
     for full_key, val in data.items():
-        match = re.match(r"\[(.*?)\](.*)", full_key)
+        match = re.re.match(r"\[(.*?)\](.*)", full_key)
         if match:
             group_name, pair_key = match.group(1), match.group(2).strip()
             if group_name not in groups: 
@@ -170,7 +170,7 @@ if selected_file:
         
         valid_data_rows = []        # 집단 분석용 (유효 데이터만 취합)
         individual_detail_rows = [] # 유효한 개인별 상세 (순위 포함)
-        invalid_detail_rows = []    # [추가됨] 부적합 개인별 상세 (순위 포함)
+        invalid_detail_rows = []    # 부적합 개인별 상세 (순위 포함)
         status_list = []            # 현황판
         
         for idx, row in df.iterrows():
@@ -258,8 +258,10 @@ if selected_file:
                 criteria_name = row_c['1차 기준']
                 criteria_weight = row_c['1차 가중치']
                 
-                # 1차 기준 헤더 출력
-                table_markdown += f"**<span style='font-size:1.1em;'>{criteria_name} (기준 가중치: {criteria_weight:.4f})</span>**\n\n"
+                # 1차 기준 헤더 출력 (요청하신 구별 방식)
+                table_markdown += f"<div style='margin-top:20px; padding:8px; background:#f0f8ff; border-left: 5px solid #228be6;'>"
+                table_markdown += f"**<span style='font-size:1.1em; color:#228be6;'>{criteria_name}</span>** (기준 가중치: {criteria_weight:.4f})"
+                table_markdown += "</div>\n\n"
                 
                 # 해당 1차 기준의 세부 항목 필터링
                 sub_items = grouped_results[grouped_results['1차 기준'] == criteria_name].copy()
@@ -272,18 +274,18 @@ if selected_file:
                     '순위': '순위'
                 })
                 
-                # DataFrame을 Markdown 테이블로 변환
-                # st.dataframe 대신 직접 Markdown 테이블을 구성하여 통합된 느낌을 줍니다.
+                # DataFrame을 Markdown 테이블로 변환 (to_markdown은 tabulate 패키지 필요)
+                # 헤더를 명시적으로 표시하기 위해 to_markdown()을 사용합니다.
                 table_markdown += disp_sub.to_markdown(index=False, floatfmt=".4f")
-                table_markdown += "\n\n---\n\n" # 그룹 간 구분선
+                table_markdown += "\n\n" # 그룹 간 구분선
             
             # 최종 마크다운 출력
-            st.markdown(table_markdown)
+            st.markdown(table_markdown, unsafe_allow_html=True)
             # --------------------------------------------------------------------------
             # [핵심 수정 부분 끝]
             # --------------------------------------------------------------------------
 
-            # 엑셀 다운로드 로직 (분리된 버튼 유지)
+            # 엑셀 다운로드 로직 (이하 동일하게 유지)
             st.divider()
             st.markdown("### 📥 상세 리포트 다운로드")
             
