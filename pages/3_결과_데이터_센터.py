@@ -18,26 +18,22 @@ if not os.path.exists(DATA_FOLDER):
     os.makedirs(DATA_FOLDER)
 
 # --------------------------------------------------------------------------
-# 2. AHP 계산 엔진
+# 2. AHP 계산 엔진 (기존 코드 유지)
 # --------------------------------------------------------------------------
 RI_TABLE = {1: 0, 2: 0, 3: 0.58, 4: 0.90, 5: 1.12, 6: 1.24, 7: 1.32, 8: 1.41, 9: 1.45, 10: 1.49}
 
 def saaty_scale(val):
-    # [수정됨] pages/2에서 저장된 float 문자열 형태의 가중치 값을 처리
+    # [설문 페이지 변경에 맞춰 수정된 부분: float 가중치 처리]
     try:
         val_f = float(val)
     except (ValueError, TypeError):
-        # 값이 숫자가 아니거나 오류가 있다면 동등(1)으로 처리
         return 1
         
     if val_f >= 1:
-        # A가 더 중요: val_f 자체가 가중치 값 (예: 3.00 -> 3)
         return val_f
     elif val_f <= -1:
-        # B가 더 중요: -1 * (B의 중요도)로 저장됨. (예: -3.00 -> 가중치는 1/3)
         return 1 / abs(val_f)
     else:
-        # 0이거나 -1과 1 사이의 값일 경우 (일반적으로는 1:1)
         return 1
 
 def calculate_ahp(items, pairs_data):
@@ -239,25 +235,63 @@ if selected_file:
             res_df = pd.DataFrame(valid_data_rows)
             final_df = res_df.groupby(['1차 기준', '2차 항목']).mean(numeric_only=True).reset_index()
             final_df = final_df.sort_values(by='종합 가중치', ascending=False)
+            
+            # --------------------------------------------------------------------------
+            # [핵심 수정 부분] 출력 형태 변경: 기준층(그룹)별 가중치 표 형식
+            # --------------------------------------------------------------------------
+            st.divider()
+            st.markdown("### 🏆 2️⃣ 최종 종합 순위 (기준층/세부항목 분리)")
+            
+            # 1. 1차 기준 가중치 계산 및 순위 부여
+            criteria_weights = final_df.groupby('1차 기준')['1차 가중치'].mean().reset_index()
+            criteria_weights = criteria_weights.sort_values(by='1차 가중치', ascending=False)
+            
+            # 2. 최종 순위 부여 (세부 항목 기준)
             final_df['순위'] = range(1, len(final_df) + 1)
             
-            disp_df = final_df[['순위', '1차 기준', '2차 항목', '종합 가중치']]
+            # 3. 데이터프레임을 1차 기준별로 그룹화
+            grouped_results = final_df.sort_values(by=['1차 가중치', '종합 가중치'], ascending=[False, False])
             
-            st.divider()
-            st.markdown("### 🏆 2️⃣ 최종 종합 순위 (유효 데이터 기준)")
-            st.dataframe(disp_df.style.background_gradient(subset=['종합 가중치'], cmap='Blues'), use_container_width=True)
+            # 사용자 지정 테이블 렌더링 시작
+            table_markdown = ""
+            for _, row_c in criteria_weights.iterrows():
+                criteria_name = row_c['1차 기준']
+                criteria_weight = row_c['1차 가중치']
+                
+                # 1차 기준 헤더 출력
+                table_markdown += f"**<span style='font-size:1.1em;'>{criteria_name} (기준 가중치: {criteria_weight:.4f})</span>**\n\n"
+                
+                # 해당 1차 기준의 세부 항목 필터링
+                sub_items = grouped_results[grouped_results['1차 기준'] == criteria_name].copy()
+                
+                # 출력에 필요한 컬럼만 선택 및 이름 변경
+                disp_sub = sub_items[['2차 항목', '2차 가중치', '종합 가중치', '순위']].rename(columns={
+                    '2차 항목': '세부 항목', 
+                    '2차 가중치': '항목 가중치', 
+                    '종합 가중치': '종합 가중치', 
+                    '순위': '순위'
+                })
+                
+                # DataFrame을 Markdown 테이블로 변환
+                # st.dataframe 대신 직접 Markdown 테이블을 구성하여 통합된 느낌을 줍니다.
+                table_markdown += disp_sub.to_markdown(index=False, floatfmt=".4f")
+                table_markdown += "\n\n---\n\n" # 그룹 간 구분선
+            
+            # 최종 마크다운 출력
+            st.markdown(table_markdown)
+            # --------------------------------------------------------------------------
+            # [핵심 수정 부분 끝]
+            # --------------------------------------------------------------------------
 
-            # -------------------------------------------------------
-            # [엑셀 다운로드]
-            # -------------------------------------------------------
+            # 엑셀 다운로드 로직 (분리된 버튼 유지)
             st.divider()
             st.markdown("### 📥 상세 리포트 다운로드")
             
             # DataFrame 변환
             personal_valid_df = pd.DataFrame(individual_detail_rows) # 유효
-            personal_invalid_df = pd.DataFrame(invalid_detail_rows)  # 부적합 [추가됨]
-            
-            # 컬럼 순서 정리 (보기 좋게)
+            personal_invalid_df = pd.DataFrame(invalid_detail_rows)  # 부적합
+
+            # 컬럼 순서 정리
             cols = ['응답자', '작성시간', 'CR', '순위', '1차 기준', '1차 가중치', '2차 항목', '2차 가중치', '종합 가중치']
             
             if not personal_valid_df.empty:
@@ -268,24 +302,25 @@ if selected_file:
 
             output = io.BytesIO()
             with pd.ExcelWriter(output, engine='openpyxl') as writer:
-                # 시트 1: 종합 순위 (유효값 기준)
-                disp_df.to_excel(writer, index=False, sheet_name='종합_순위_분석')
+                # 시트 1: 종합 순위 (이전처럼 단일 테이블 형태)
+                final_df['순위'] = range(1, len(final_df) + 1) # 다시 순위 부여
+                final_df[['순위', '1차 기준', '2차 항목', '1차 가중치', '2차 가중치', '종합 가중치']].to_excel(writer, index=False, sheet_name='종합_순위_분석')
                 
                 # 시트 2: 유효한 개인별 상세
                 personal_valid_df.to_excel(writer, index=False, sheet_name='개인별_상세(유효)')
                 
-                # 시트 3: [NEW] 부적합한 개인별 상세 (별도 시트)
+                # 시트 3: 부적합한 개인별 상세
                 if not personal_invalid_df.empty:
                     personal_invalid_df.to_excel(writer, index=False, sheet_name='부적합_상세_결과')
                 
-                # 시트 4: 전체 응답자 현황 (O/X 확인용)
+                # 시트 4: 전체 응답자 현황
                 status_df.to_excel(writer, index=False, sheet_name='응답자_현황_및_CR')
                 
                 # 시트 5: 원본 RAW 데이터
                 df.to_excel(writer, index=False, sheet_name='원본_RAW_데이터')
             
             st.download_button(
-                label="📊 엑셀 리포트 다운로드 (.xlsx)",
+                label="📊 통합 엑셀 리포트 다운로드 (.xlsx)",
                 data=output.getvalue(),
                 file_name=f"AHP_Report_{display_name}.xlsx",
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
