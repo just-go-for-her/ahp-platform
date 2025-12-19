@@ -22,7 +22,6 @@ st.set_page_config(page_title="설문 진행", page_icon="📝", layout="wide")
 
 # 1. URL 데이터 처리
 query_params = st.query_params
-
 raw_id = query_params.get("id", None)
 if isinstance(raw_id, list):
     survey_id = raw_id[0] if raw_id else None
@@ -275,11 +274,9 @@ else:
             const rankA = parseInt(initialRanks[p.r]);
             const rankB = parseInt(initialRanks[p.c]);
 
-            // 1. 순위 기반 방향 강제
             if (rankA < rankB && sliderVal > 0) {{ alert(`⚠️ 순위 모순! '${{p.a}}'(${{rankA}}위)가 더 높으므로 오른쪽으로 갈 수 없습니다.`); return; }}
             if (rankA > rankB && sliderVal < 0) {{ alert(`⚠️ 순위 모순! '${{p.b}}'(${{rankB}}위)가 더 높으므로 왼쪽으로 갈 수 없습니다.`); return; }}
 
-            // 2. 순위 보존형 기하평균 추천
             let currentWeight = getWeightFromSlider(sliderVal);
             const n = items.length;
             let indirectEstimates = [];
@@ -290,8 +287,6 @@ else:
 
             if(indirectEstimates.length > 0) {{
                 let geoMean = Math.exp(indirectEstimates.reduce((acc, val) => acc + Math.log(val), 0) / indirectEstimates.length);
-                
-                // 순위 논리 보호: A > B 인데 추천값이 B 우세면 강제로 1(동등) 고정
                 if (rankA < rankB && geoMean < 1) geoMean = 1;
                 if (rankA > rankB && geoMean > 1) geoMean = 1;
 
@@ -350,13 +345,16 @@ else:
                 goal_clean = survey_data["goal"].replace(" ", "_")
                 secret_key = survey_data.get("secret_key", "public")
                 if not os.path.exists("survey_data"): os.makedirs("survey_data")
-                file_path = f"survey_data/{{secret_key}}_{{goal_clean}}.csv"
+                
+                # [오타 수정 완료] 중괄호를 하나만 사용
+                file_path = f"survey_data/{secret_key}_{goal_clean}.csv"
+                
                 save_data = { "Time": datetime.now().strftime("%Y-%m-%d %H:%M"), "Respondent": respondent, "Raw_Data": code }
                 df = pd.DataFrame([save_data])
                 try: old_df = pd.read_csv(file_path)
                 except: old_df = pd.DataFrame()
                 pd.concat([old_df, df], ignore_index=True).to_csv(file_path, index=False)
-                st.success("✅ 안전하게 제출되었습니다! 감사합니다.")
+                st.success(f"✅ '{respondent}'님, 안전하게 제출되었습니다! 감사합니다.")
                 st.balloons()
             except Exception as e:
-                st.error(f"오류 발생: {{e}}")
+                st.error(f"오류 발생: {e}")
