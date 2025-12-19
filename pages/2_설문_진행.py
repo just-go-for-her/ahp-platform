@@ -23,7 +23,6 @@ st.set_page_config(page_title="설문 진행", page_icon="📝", layout="wide")
 # 1. URL 데이터 처리
 query_params = st.query_params
 
-# st.query_params 는 보통 { 'id': ['abcd1234'] } 형태라서 처리
 raw_id = query_params.get("id", None)
 if isinstance(raw_id, list):
     survey_id = raw_id[0] if raw_id else None
@@ -36,7 +35,6 @@ survey_data = None
 # [MODE B] 응답자 모드: id 로 설문 구조 불러오기
 # ------------------------------------------------------------------
 if survey_id:
-    # 응답자: 설문 링크를 통해 들어온 경우
     config_path = os.path.join(CONFIG_DIR, f"{survey_id}.json")
     if not os.path.exists(config_path):
         st.error("유효하지 않은 설문 링크입니다. (설문 ID를 찾을 수 없습니다)")
@@ -50,7 +48,6 @@ if survey_id:
         st.error(f"설문 구성을 불러오는 중 오류가 발생했습니다: {e}")
         st.stop()
 else:
-    # 연구자: Private Mode
     is_respondent = False
     if "passed_structure" in st.session_state:
         survey_data = st.session_state["passed_structure"]
@@ -86,27 +83,20 @@ if not is_respondent:
         if not project_key:
             st.error("데이터 관리를 위해 비밀번호를 설정해주세요.")
         else:
-            # 연구자 구조 + secret_key 포함해서 서버에 저장할 전체 구조
             full_structure = {
                 "goal": survey_data["goal"],
                 "main_criteria": survey_data["main_criteria"],
                 "sub_criteria": survey_data["sub_criteria"],
                 "secret_key": project_key,
             }
-
-            # 1) 짧은 설문 ID 생성 (예: a1b2c3d4)
             survey_id = uuid.uuid4().hex[:8]
-
-            # 2) 서버(파일)에 설문 구조 저장
             config_path = os.path.join(CONFIG_DIR, f"{survey_id}.json")
             with open(config_path, "w", encoding="utf-8") as f:
                 json.dump(full_structure, f, ensure_ascii=False, indent=2)
 
-            # 3) 응답자가 사용할 URL에는 id만 포함
             final_url = f"{FULL_URL}?id={survey_id}"
 
             st.markdown("### 👇 아래 버튼을 눌러 공유하세요")
-
             components.html(
                 f"""
             <style>
@@ -115,11 +105,6 @@ if not is_respondent:
                     background-color: #FEE500; color: #000000; border: none; border-radius: 12px;
                     padding: 15px 0; width: 100%; font-size: 16px; font-weight: bold; cursor: pointer;
                     display: flex; align-items: center; justify-content: center; gap: 10px;
-                }}
-                .email-btn {{
-                    background-color: #f1f3f5; color: #495057; border: 1px solid #dee2e6;
-                    border-radius: 12px; padding: 12px 0; width: 100%; font-size: 14px;
-                    font-weight: bold; cursor: pointer; margin-top: 8px;
                 }}
             </style>
             <script>
@@ -130,49 +115,26 @@ if not is_respondent:
                         setTimeout(() => {{ document.getElementById('msg').innerText = ""; }}, 3000);
                     }}).catch(err => {{ prompt("이 링크를 복사하세요:", url); }});
                 }}
-                function sendEmail() {{
-                    const subject = encodeURIComponent("[설문 요청] {survey_data['goal']}");
-                    const body = encodeURIComponent("링크: " + '{final_url}');
-                    window.location.href = "mailto:?subject=" + subject + "&body=" + body;
-                }}
             </script>
             <button class="kakao-btn" onclick="copyLink()">💬 카카오톡 링크 복사하기</button>
             <div id="msg" style="text-align:center; color:green; font-size:12px; margin-top:5px; height:20px;"></div>
-            <button class="email-btn" onclick="sendEmail()">📧 이메일 보내기</button>
-            """,
-                height=130,
-            )
-
-            with st.expander("원문 링크 보기"):
-                st.code(final_url)
-                st.info("💡 팁: 응답자는 링크만 누르면 됩니다. 비밀번호는 묻지 않습니다.")
+            """, height=100)
 
 # ------------------------------------------------------------------
-# [MODE B] 응답자: 설문 진행 (순위 강제 로직 포함)
+# [MODE B] 응답자: 설문 진행
 # ------------------------------------------------------------------
 else:
     st.title(f"📝 {survey_data['goal']}")
 
     tasks = []
-    # 1. 1차 기준 비교
     if len(survey_data["main_criteria"]) > 1:
-        tasks.append(
-            {
-                "name": "📂 1. 평가 기준 중요도 비교",
-                "items": survey_data["main_criteria"],
-            }
-        )
-
-    # 2. 세부 항목 비교
+        tasks.append({"name": "📂 1. 평가 기준 중요도 비교", "items": survey_data["main_criteria"]})
     for cat, items in survey_data["sub_criteria"].items():
         if len(items) > 1:
             tasks.append({"name": f"📂 2. [{cat}] 세부 항목 평가", "items": items})
 
     js_tasks = json.dumps(tasks, ensure_ascii=False)
 
-    # ==========================================================================
-    # [수정됨] HTML/JS 코드: 5점 척도 적용 및 기하평균 추천 로직 적용
-    # ==========================================================================
     html_code = f"""
     <!DOCTYPE html>
     <html lang="ko">
@@ -183,22 +145,13 @@ else:
         .step {{ display: none; animation: fadeIn 0.3s; }}
         .active {{ display: block; }}
         @keyframes fadeIn {{ from {{ opacity: 0; }} to {{ opacity: 1; }} }}
-        
         .container {{ max-width: 700px; margin: 0 auto; background: white; padding: 30px; border-radius: 15px; box-shadow: 0 5px 20px rgba(0,0,0,0.08); border: 1px solid #eee; }}
         h2 {{ color: #333; border-bottom: 2px solid #228be6; padding-bottom: 10px; }}
-        
         .ranking-item {{ display: flex; justify-content: space-between; margin-bottom: 10px; padding: 10px; background: #f8f9fa; border-radius: 8px; align-items: center; }}
-        .rank-select {{ padding: 5px; border-radius: 5px; }}
-        
         .card {{ background: #f8f9fa; padding: 20px; border-radius: 12px; text-align: center; margin-bottom: 20px; }}
         .vs-row {{ display: flex; justify-content: space-between; font-size: 1.2em; font-weight: bold; margin-bottom: 15px; }}
-        
-        /* 슬라이더 스타일 */
         input[type=range] {{ width: 100%; margin: 20px 0; cursor: pointer; }}
-        
         .btn {{ width: 100%; padding: 15px; background: #228be6; color: white; border: none; border-radius: 8px; font-size: 1.1em; cursor: pointer; }}
-        .btn:disabled {{ background: #adb5bd; }}
-        
         .modal {{ display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); justify-content: center; align-items: center; }}
         .modal-box {{ background: white; padding: 30px; border-radius: 15px; width: 90%; max-width: 450px; text-align: center; }}
         .logic-text {{ color: #228be6; font-weight: bold; font-size: 1.1em; }}
@@ -206,16 +159,13 @@ else:
     </style>
     </head>
     <body>
-
     <div class="container">
         <h3 id="task-title"></h3>
-        
         <div id="step-ranking" class="step">
             <p>1. 각 항목의 중요도 순위를 미리 예상해 주세요.</p>
             <div id="ranking-list"></div>
             <button class="btn" onclick="startCompare()">비교 시작</button>
         </div>
-
         <div id="step-compare" class="step">
             <p>2. 두 항목 중 더 중요한 쪽을 선택하세요. (<span id="progress"></span>)</p>
             <div class="card">
@@ -232,7 +182,6 @@ else:
             </div>
             <button class="btn" onclick="checkConsistency()">다음 질문</button>
         </div>
-
         <div id="step-finish" class="step">
             <h2>🎉 모든 설문 완료!</h2>
             <p>아래 코드를 복사해서 제출해주세요.</p>
@@ -243,18 +192,14 @@ else:
     <div id="modal" class="modal">
         <div class="modal-box">
             <h3>⚠️ 논리적 일관성 확인</h3>
-            <p style="font-size:0.9em; color:#666;">
-                이전 응답들을 종합적으로 분석했을 때,<br>
-                논리적으로 더 적절한 값은 다음과 같습니다.
-            </p>
+            <p style="font-size:0.9em; color:#666;">이전 응답을 분석한 결과, 순위 논리를 유지하면서 추천되는 값입니다.</p>
             <div style="background:#f1f3f5; padding:20px; border-radius:10px; margin:20px 0; text-align:left;">
                 <div style="margin-bottom:10px;">🧠 AI 추천: <span id="rec-val" class="logic-text"></span></div>
                 <div>🖐 나의 선택: <span id="my-val" class="user-text"></span></div>
             </div>
-            <p style="font-size:0.8em; color:#888;">추천값을 따르면 데이터 신뢰도(CR)가 좋아집니다.</p>
             <div style="display:flex; gap:10px;">
                 <button class="btn" style="background:#adb5bd;" onclick="closeModal(false)">내 선택 유지</button>
-                <button class="btn" onclick="closeModal(true)">추천값으로 변경</button>
+                <button class="btn" onclick="closeModal(true)">다시 설문하기</button>
             </div>
         </div>
     </div>
@@ -262,42 +207,25 @@ else:
     <script>
         const tasks = {js_tasks};
         let currentTaskIdx = 0;
-        let items = [], pairs = [], matrix = [], pairIdx = 0, initialRanks = [], pendingRecWeight = 0;
+        let items = [], pairs = [], matrix = [], pairIdx = 0, initialRanks = [];
         let allAnswers = {{}};
 
-        // 슬라이더 값을 실제 가중치로 변환 (1~5점 척도)
         function getWeightFromSlider(val) {{
             if (val === 0) return 1;
             return val < 0 ? (Math.abs(val) + 1) : (1 / (val + 1));
         }}
-        
-        // 가중치를 슬라이더 값으로 역변환
-        function getSliderFromWeight(w) {{
-            if (w >= 1) return Math.min(4, Math.round(w - 1)); // -4 ~ 0 (Left)
-            else return Math.min(4, Math.round((1/w) - 1));   // 0 ~ 4 (Right)
-            // 참고: 로직상 부호 처리는 별도 필요
-        }}
 
         function loadTask() {{
-            if (currentTaskIdx >= tasks.length) {{
-                finishAll();
-                return;
-            }}
+            if (currentTaskIdx >= tasks.length) {{ finishAll(); return; }}
             const task = tasks[currentTaskIdx];
             items = task.items;
             document.getElementById('task-title').innerText = task.name;
-            
             const listDiv = document.getElementById('ranking-list');
             listDiv.innerHTML = "";
             let options = '<option value="" selected disabled>선택</option>';
             for(let i=1; i<=items.length; i++) options += `<option value="${{i}}">${{i}}위</option>`;
-            
             items.forEach((item, idx) => {{
-                listDiv.innerHTML += `
-                    <div class="ranking-item">
-                        <span>${{item}}</span>
-                        <select id="rank-${{idx}}" class="rank-select">${{options}}</select>
-                    </div>`;
+                listDiv.innerHTML += `<div class="ranking-item"><span>${{item}}</span><select id="rank-${{idx}}" class="rank-select" style="padding:5px; border-radius:5px;">${{options}}</select></div>`;
             }});
             showStep('step-ranking');
         }}
@@ -309,42 +237,26 @@ else:
                 if(!val) {{ alert("순위를 모두 선택해주세요."); return; }}
                 initialRanks.push(val);
             }}
-            
-            const rankSet = new Set(initialRanks);
-            if(rankSet.size !== initialRanks.length) {{
-                alert("⚠️ 중복된 순위가 있습니다!\\n각 항목에 서로 다른 순위를 지정해주세요.");
-                return;
-            }}
-
+            if(new Set(initialRanks).size !== initialRanks.length) {{ alert("⚠️ 중복된 순위가 있습니다!"); return; }}
             const n = items.length;
             matrix = Array.from({{length: n}}, () => Array(n).fill(0));
             for(let i=0; i<n; i++) matrix[i][i] = 1;
-            
             pairs = [];
-            for(let i=0; i<n; i++) {{
-                for(let j=i+1; j<n; j++) {{
-                    pairs.push({{ r: i, c: j, a: items[i], b: items[j] }});
-                }}
-            }}
+            for(let i=0; i<n; i++) {{ for(let j=i+1; j<n; j++) {{ pairs.push({{ r: i, c: j, a: items[i], b: items[j] }}); }} }}
             pairIdx = 0;
             showStep('step-compare');
             renderPair();
         }}
 
         function renderPair() {{
-            if (pairIdx >= pairs.length) {{
-                currentTaskIdx++;
-                loadTask();
-                return;
-            }}
+            if (pairIdx >= pairs.length) {{ currentTaskIdx++; loadTask(); return; }}
             const p = pairs[pairIdx];
             document.getElementById('item-a').innerText = p.a;
             document.getElementById('item-b').innerText = p.b;
-            document.getElementById('rank-hint-a').innerText = `(예상 ${{initialRanks[p.r]}}위)`;
-            document.getElementById('rank-hint-b').innerText = `(예상 ${{initialRanks[p.c]}}위)`;
+            document.getElementById('rank-hint-a').innerText = `(${{initialRanks[p.r]}}위)`;
+            document.getElementById('rank-hint-b').innerText = `(${{initialRanks[p.c]}}위)`;
             document.getElementById('slider').value = 0;
             updateLabel();
-            
             document.getElementById('progress').innerText = (pairIdx + 1) + " / " + pairs.length;
         }}
 
@@ -352,139 +264,74 @@ else:
             const val = parseInt(document.getElementById('slider').value);
             const disp = document.getElementById('val-display');
             const p = pairs[pairIdx];
-            
-            if(val == 0) {{ 
-                disp.innerText = "동등함 (1:1)"; 
-                disp.style.color = "#555"; 
-            }} else if(val < 0) {{ 
-                // 왼쪽 중요
-                const score = Math.abs(val) + 1;
-                disp.innerText = p.a + " " + score + "배 중요"; 
-                disp.style.color = "#228be6";
-            }} else {{ 
-                // 오른쪽 중요
-                const score = val + 1;
-                disp.innerText = p.b + " " + score + "배 중요"; 
-                disp.style.color = "#fa5252";
-            }}
+            if(val == 0) {{ disp.innerText = "동등함 (1:1)"; disp.style.color = "#555"; }}
+            else if(val < 0) {{ disp.innerText = p.a + " " + (Math.abs(val)+1) + "배 중요"; disp.style.color = "#228be6"; }}
+            else {{ disp.innerText = p.b + " " + (val+1) + "배 중요"; disp.style.color = "#fa5252"; }}
         }}
 
         function checkConsistency() {{
             const sliderVal = parseInt(document.getElementById('slider').value);
             const p = pairs[pairIdx];
-            
-            // 1. 순위 검증 (Rank Reversal Check)
             const rankA = parseInt(initialRanks[p.r]);
             const rankB = parseInt(initialRanks[p.c]);
 
-            if (rankA < rankB && sliderVal > 0) {{
-                alert(`⚠️ 순위 모순!\\n\\n'${{p.a}}'(${{rankA}}위)를 더 높게 평가했으나,\\n지금은 '${{p.b}}'가 더 중요하다고 선택했습니다.\\n\\n순위에 맞게 왼쪽으로 조정해주세요.`);
-                return;
-            }}
-            if (rankA > rankB && sliderVal < 0) {{
-                alert(`⚠️ 순위 모순!\\n\\n'${{p.b}}'(${{rankB}}위)를 더 높게 평가했으나,\\n지금은 '${{p.a}}'가 더 중요하다고 선택했습니다.\\n\\n순위에 맞게 오른쪽으로 조정해주세요.`);
-                return;
-            }}
+            // 1. 순위 기반 방향 강제
+            if (rankA < rankB && sliderVal > 0) {{ alert(`⚠️ 순위 모순! '${{p.a}}'(${{rankA}}위)가 더 높으므로 오른쪽으로 갈 수 없습니다.`); return; }}
+            if (rankA > rankB && sliderVal < 0) {{ alert(`⚠️ 순위 모순! '${{p.b}}'(${{rankB}}위)가 더 높으므로 왼쪽으로 갈 수 없습니다.`); return; }}
 
-            // 2. AHP 기하평균 기반 추천 (Improved Recommendation Logic)
+            // 2. 순위 보존형 기하평균 추천
             let currentWeight = getWeightFromSlider(sliderVal);
-            
             const n = items.length;
             let indirectEstimates = [];
-            
-            // 현재까지 입력된 매트릭스를 이용하여, i->j 로 가는 간접 경로들의 값을 수집
-            // (A->C * C->B = A->B 예측값)
             for(let k=0; k<n; k++) {{
                 if(k === p.r || k === p.c) continue;
-                if(matrix[p.r][k] !== 0 && matrix[k][p.c] !== 0) {{
-                    const indirectVal = matrix[p.r][k] * matrix[k][p.c];
-                    indirectEstimates.push(indirectVal);
-                }}
+                if(matrix[p.r][k] !== 0 && matrix[k][p.c] !== 0) indirectEstimates.push(matrix[p.r][k] * matrix[k][p.c]);
             }}
 
-            // 간접 경로가 있다면, 기하평균 계산 (Geometric Mean)
             if(indirectEstimates.length > 0) {{
-                // 기하평균 = exp( sum(ln(x)) / n )
-                let sumLog = indirectEstimates.reduce((acc, val) => acc + Math.log(val), 0);
-                let geoMean = Math.exp(sumLog / indirectEstimates.length);
+                let geoMean = Math.exp(indirectEstimates.reduce((acc, val) => acc + Math.log(val), 0) / indirectEstimates.length);
                 
-                // 사용자가 입력한 값과 추천 값의 차이(비율) 계산
-                // 예: 사용자는 1(동등), 추천은 4(한쪽 우세) -> 비율 4.0
-                const ratio = currentWeight > geoMean ? currentWeight / geoMean : geoMean / currentWeight;
-                
-                // 임계값: 5점 척도이므로 2배 이상 차이나면 경고 (좀 더 민감하게 잡음)
-                if(ratio >= 2.0) {{
-                    showModal(geoMean, currentWeight);
-                    return; // 모달을 띄우고 함수 종료 (사용자 선택 대기)
-                }}
-            }}
+                // 순위 논리 보호: A > B 인데 추천값이 B 우세면 강제로 1(동등) 고정
+                if (rankA < rankB && geoMean < 1) geoMean = 1;
+                if (rankA > rankB && geoMean > 1) geoMean = 1;
 
-            // 문제 없으면 저장
+                const ratio = currentWeight > geoMean ? currentWeight / geoMean : geoMean / currentWeight;
+                if(ratio >= 2.0) {{ showModal(geoMean, currentWeight); return; }}
+            }}
             saveAnswer(currentWeight);
         }}
 
         function showModal(recW, usrW) {{
-            pendingRecWeight = recW; // 추천값 임시 저장
-            
-            // 텍스트 포맷팅 함수
             const fmt = (w) => {{
-                if (w >= 1.1) {{
-                    let score = Math.min(5, Math.round(w)); // 최대 5로 클램핑
-                    return "왼쪽(A) " + score + "배";
-                }} else if (w <= 0.9) {{
-                    let score = Math.min(5, Math.round(1/w));
-                    return "오른쪽(B) " + score + "배";
-                }} else {{
-                    return "동등함";
-                }}
+                if (w >= 1.1) return "왼쪽(A) " + Math.min(5, Math.round(w)) + "배";
+                if (w <= 0.9) return "오른쪽(B) " + Math.min(5, Math.round(1/w)) + "배";
+                return "동등함(1:1)";
             }};
-            
             document.getElementById('rec-val').innerText = fmt(recW);
             document.getElementById('my-val').innerText = fmt(usrW);
             document.getElementById('modal').style.display = 'flex';
         }}
 
-        function closeModal(useRecommend) {{
+        function closeModal(reSurvey) {{
             document.getElementById('modal').style.display = 'none';
-            if(useRecommend) {{
-                // 추천값 저장 (단, 5점 척도 범위 내로 제한해야 함)
-                // 하지만 수학적 일관성을 위해 내부 값은 그대로 쓰되, 다음 화면 진행
-                saveAnswer(pendingRecWeight);
+            if(reSurvey) {{
+                document.getElementById('slider').value = 0; updateLabel();
+                alert("💡 추천값을 참고하여 슬라이더를 다시 조정해 주세요.");
             }} else {{
-                // 원래 사용자 값 저장
-                const sliderVal = parseInt(document.getElementById('slider').value);
-                saveAnswer(getWeightFromSlider(sliderVal));
+                saveAnswer(getWeightFromSlider(parseInt(document.getElementById('slider').value)));
             }}
         }}
 
         function saveAnswer(w) {{
             const p = pairs[pairIdx];
-            matrix[p.r][p.c] = w;
-            matrix[p.c][p.r] = 1 / w;
-            
-            // 결과 JSON에는 보기 편하게 텍스트나 근사치로 저장해도 되지만, 정확한 계산 위해 w 저장
-            // 여기서는 연구자가 볼 때 직관적인 슬라이더값 변환하여 저장
-            let logVal = 0;
-            if(w >= 1) logVal = w;         // A가 w배 중요
-            else logVal = -1 * (1/w);      // B가 (1/w)배 중요 -> 음수 표현
-            
-            const taskName = tasks[currentTaskIdx].name;
-            allAnswers[`[${{taskName}}] ${{p.a}} vs ${{p.b}}`] = logVal.toFixed(2);
-            
-            pairIdx++;
-            renderPair();
+            matrix[p.r][p.c] = w; matrix[p.c][p.r] = 1 / w;
+            let logVal = w >= 1 ? w : -1 * (1/w);
+            allAnswers[`[${{tasks[currentTaskIdx].name}}] ${{p.a}} vs ${{p.b}}`] = logVal.toFixed(2);
+            pairIdx++; renderPair();
         }}
 
-        function finishAll() {{
-            showStep('step-finish');
-            document.getElementById('result-code').value = JSON.stringify(allAnswers);
-        }}
-
-        function showStep(id) {{
-            document.querySelectorAll('.step').forEach(e => e.classList.remove('active'));
-            document.getElementById(id).classList.add('active');
-        }}
-
+        function finishAll() {{ showStep('step-finish'); document.getElementById('result-code').value = JSON.stringify(allAnswers); }}
+        function showStep(id) {{ document.querySelectorAll('.step').forEach(e => e.classList.remove('active')); document.getElementById(id).classList.add('active'); }}
         loadTask();
     </script>
     </body>
@@ -497,31 +344,19 @@ else:
         st.write("📋 **데이터 제출**")
         respondent = st.text_input("응답자 성함")
         code = st.text_area("결과 코드 붙여넣기")
-
         if st.form_submit_button("제출"):
             try:
-                json.loads(code)  # 형식 검증
+                json.loads(code)
                 goal_clean = survey_data["goal"].replace(" ", "_")
                 secret_key = survey_data.get("secret_key", "public")
-
-                if not os.path.exists("survey_data"):
-                    os.makedirs("survey_data")
-
-                file_path = f"survey_data/{secret_key}_{goal_clean}.csv"
-
-                save_data = {
-                    "Time": datetime.now().strftime("%Y-%m-%d %H:%M"),
-                    "Respondent": respondent,
-                    "Raw_Data": code,
-                }
+                if not os.path.exists("survey_data"): os.makedirs("survey_data")
+                file_path = f"survey_data/{{secret_key}}_{{goal_clean}}.csv"
+                save_data = { "Time": datetime.now().strftime("%Y-%m-%d %H:%M"), "Respondent": respondent, "Raw_Data": code }
                 df = pd.DataFrame([save_data])
-                try:
-                    old_df = pd.read_csv(file_path)
-                except:
-                    old_df = pd.DataFrame()
+                try: old_df = pd.read_csv(file_path)
+                except: old_df = pd.DataFrame()
                 pd.concat([old_df, df], ignore_index=True).to_csv(file_path, index=False)
-
                 st.success("✅ 안전하게 제출되었습니다! 감사합니다.")
                 st.balloons()
             except Exception as e:
-                st.error(f"오류 발생: {e}")
+                st.error(f"오류 발생: {{e}}")
