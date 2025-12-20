@@ -79,12 +79,13 @@ else:
         .board-grid {{ display: flex; gap: 10px; overflow-x: auto; padding-bottom: 5px; }}
         .board-item {{ min-width: 135px; background: white; padding: 12px; border-radius: 10px; text-align: center; border: 1px solid #dee2e6; flex: 1; }}
         
-        .rank-label {{ font-size: 0.75em; color: #868e96; }}
+        .rank-label {{ font-size: 0.75em; color: #868e96; display: block; }}
         .rank-value {{ font-weight: bold; font-size: 0.9em; display: block; margin-top: 2px; }}
         .mismatch {{ color: #fa5252 !important; font-weight: 800; }}
 
         .card {{ background: #fff; padding: 30px; border-radius: 15px; text-align: center; margin-bottom: 20px; border: 1px solid #e9ecef; }}
         
+        /* 센터 필 슬라이더 */
         input[type=range] {{
             -webkit-appearance: none; width: 100%; height: 12px; background: #dee2e6;
             border-radius: 6px; outline: none; margin: 35px 0;
@@ -110,7 +111,7 @@ else:
         <div id="live-board" class="ranking-board" style="display:none;">
             <div class="board-title">
                 <span>📊 실시간 순위 현황 (1등 → N등)</span>
-                <span id="logic-status">상태 체크 중</span>
+                <span id="logic-status">체크 중</span>
             </div>
             <div id="board-grid" class="board-grid"></div>
         </div>
@@ -118,7 +119,7 @@ else:
         <div id="step-ranking" class="step">
             <p><b>1단계:</b> 각 항목의 <b>기대 순위</b>를 정해주세요.</p>
             <div id="ranking-list" style="margin-bottom:20px;"></div>
-            <button class="btn" style="width:100%;" onclick="startCompare()">설문 시작하기</button>
+            <button class="btn" onclick="startCompare()">설문 시작하기</button>
         </div>
 
         <div id="step-compare" class="step">
@@ -132,12 +133,11 @@ else:
                     (기대 <span id="hint-a"></span>위) vs (기대 <span id="hint-b"></span>위)
                 </div>
                 <input type="range" id="slider" min="-4" max="4" value="0" step="1" oninput="updateUI()">
-                <div id="val-display" style="font-weight:bold; color:#495057; font-size:1.3em;">동등함</div>
+                <div id="val-display" style="font-weight:bold; color:#343a40; font-size:1.3em;">동등함</div>
             </div>
             
             <div class="button-group">
-                <button class="btn btn-secondary" onclick="goBack()" id="back-btn">이전 질문</button>
-                <button class="btn" onclick="checkLogic()" id="next-btn">다음 질문</button>
+                <div style="width:100%;"></div> <button class="btn" onclick="checkLogic()" id="next-btn">다음 질문</button>
             </div>
         </div>
 
@@ -176,7 +176,7 @@ else:
             for(let i=1; i<=items.length; i++) options += `<option value="${{i}}">${{i}}위</option>`;
             items.forEach((item, idx) => {{
                 listDiv.innerHTML += `<div style="display:flex; justify-content:space-between; padding:14px; background:#f8f9fa; border-radius:10px; margin-bottom:10px; align-items:center; border:1px solid #eee;">
-                    <span style="font-weight:bold;">${{item}}</span><select id="rank-${{idx}}">${{options}}</select></div>`;
+                    <span style="font-weight:bold;">${{item}}</span><select id="rank-${{idx}}" style="padding:6px;">${{options}}</select></div>`;
             }});
             showStep('step-ranking'); document.getElementById('live-board').style.display = 'none';
         }}
@@ -191,13 +191,6 @@ else:
             }}
             if(new Set(initialRanks).size !== initialRanks.length) {{ alert("중복 순위가 있습니다."); return; }}
             
-            generatePairs(tempIdxMap);
-            const n = items.length; matrix = Array.from({{length: n}}, () => Array(n).fill(0));
-            for(let i=0; i<n; i++) matrix[i][i] = 1;
-            pairIdx = 0; showStep('step-compare'); renderPair();
-        }}
-
-        function generatePairs(tempIdxMap) {{
             tempIdxMap.sort((a, b) => a.rank - b.rank);
             pairs = [];
             for(let i=0; i<tempIdxMap.length; i++) {{
@@ -208,6 +201,9 @@ else:
                     }});
                 }}
             }}
+            const n = items.length; matrix = Array.from({{length: n}}, () => Array(n).fill(0));
+            for(let i=0; i<n; i++) matrix[i][i] = 1;
+            pairIdx = 0; showStep('step-compare'); renderPair();
         }}
 
         function renderPair() {{
@@ -217,7 +213,6 @@ else:
             document.getElementById('hint-a').innerText = initialRanks[p.r];
             document.getElementById('hint-b').innerText = initialRanks[p.c];
             document.getElementById('slider').value = 0;
-            document.getElementById('back-btn').style.visibility = (pairIdx === 0) ? 'hidden' : 'visible';
             document.getElementById('live-board').style.display = 'block';
             updateUI();
         }}
@@ -291,19 +286,16 @@ else:
         function closeModal(action) {{
             document.getElementById('modal').style.display = 'none';
             if(action === 'updaterank') {{
-                // 1. 현재 가중치 기준으로 신규 순위 데이터(initialRanks) 업데이트
                 let weights = calculateWeights();
                 let sortedIdx = weights.map((w, i) => i).sort((a, b) => weights[b] - weights[a]);
                 sortedIdx.forEach((idx, i) => {{ initialRanks[idx] = i + 1; }});
                 
-                // 2. [핵심] 남은 모든 설문 질문의 좌우 위치를 새로운 순위에 맞춰 재정렬
-                // 항상 "높은 순위(작은 숫자)가 왼쪽(a)"에 오도록 pairs 배열 수정
+                // [핵심] 남은 모든 질문의 좌우 순서를 신규 순위에 맞춰 반전
                 for (let k = pairIdx; k < pairs.length; k++) {{
                     let p = pairs[k];
                     if (initialRanks[p.r] > initialRanks[p.c]) {{
-                        // 순위가 뒤바뀌어 있으면 r-c와 a-b를 서로 맞바꿈
-                        let tempR = p.r; pairs[k].r = p.c; pairs[k].c = tempR;
-                        let tempA = p.a; pairs[k].a = p.b; pairs[k].b = tempA;
+                        let tr = p.r; pairs[k].r = p.c; pairs[k].c = tr;
+                        let ta = p.a; pairs[k].a = p.b; pairs[k].b = ta;
                     }}
                 }}
                 saveAndNext();
@@ -312,15 +304,12 @@ else:
             }}
         }}
 
-        function goBack() {{ if (pairIdx > 0) {{ pairIdx--; renderPair(); }} }}
-
         function saveAndNext() {{
             const val = parseInt(document.getElementById('slider').value);
             const w = val === 0 ? 1 : (val < 0 ? Math.abs(val)+1 : 1/(val+1));
             const p = pairs[pairIdx];
             matrix[p.r][p.c] = w; matrix[p.c][p.r] = 1/w;
-            let logVal = w >= 1 ? w : -1*(1/w);
-            allAnswers[`[${{tasks[currentTaskIdx].name}}] ${{p.a}} vs ${{p.b}}`] = logVal.toFixed(2);
+            allAnswers[`[${{tasks[currentTaskIdx].name}}] ${{p.a}} vs ${{p.b}}`] = (w >= 1 ? w : -1*(1/w)).toFixed(2);
             pairIdx++;
             if (pairIdx >= pairs.length) {{ currentTaskIdx++; loadTask(); }}
             else {{ renderPair(); }}
@@ -340,10 +329,10 @@ else:
     components.html(html_code, height=850, scrolling=True)
 
     st.divider()
-    with st.form("save"):
+    with st.form("save_form"):
         st.write("📋 **최종 데이터 제출**")
         respondent = st.text_input("응답자 성함")
-        code = st.text_area("결과 코드를 붙여넣으세요")
+        code = st.text_area("결과 코드를 복사해서 붙여넣으세요")
         if st.form_submit_button("최종 제출하기", type="primary", use_container_width=True):
             if respondent and code:
                 try:
@@ -351,9 +340,12 @@ else:
                     goal_clean = survey_data["goal"].replace(" ", "_")
                     secret_key = survey_data.get("secret_key", "public")
                     if not os.path.exists("survey_data"): os.makedirs("survey_data")
-                    file_path = f"survey_data/{{secret_key}}_{{goal_clean}}.csv"
-                    save_data = {{ "Time": datetime.now().strftime("%Y-%m-%d %H:%M"), "Respondent": respondent, "Raw_Data": code }}
-                    df = pd.DataFrame([save_data]); try: old_df = pd.read_csv(file_path); except: old_df = pd.DataFrame()
+                    file_path = f"survey_data/{secret_key}_{goal_clean}.csv"
+                    # 파이썬 딕셔너리 중괄호 수정
+                    save_data = {"Time": datetime.now().strftime("%Y-%m-%d %H:%M"), "Respondent": respondent, "Raw_Data": code}
+                    df = pd.DataFrame([save_data])
+                    try: old_df = pd.read_csv(file_path)
+                    except: old_df = pd.DataFrame()
                     pd.concat([old_df, df], ignore_index=True).to_csv(file_path, index=False)
                     st.success("✅ 제출되었습니다!"); st.balloons()
                 except: st.error("코드가 올바르지 않습니다.")
