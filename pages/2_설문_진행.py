@@ -17,6 +17,7 @@ os.makedirs(CONFIG_DIR, exist_ok=True)
 
 st.set_page_config(page_title="설문 진행", page_icon="📝", layout="wide")
 
+# 1. URL 데이터 처리
 query_params = st.query_params
 raw_id = query_params.get("id", None)
 if isinstance(raw_id, list): survey_id = raw_id[0] if raw_id else None
@@ -27,9 +28,12 @@ survey_data = None
 if survey_id:
     config_path = os.path.join(CONFIG_DIR, f"{survey_id}.json")
     if os.path.exists(config_path):
-        with open(config_path, "r", encoding="utf-8") as f:
-            survey_data = json.load(f)
-        is_respondent = True
+        try:
+            with open(config_path, "r", encoding="utf-8") as f:
+                survey_data = json.load(f)
+            is_respondent = True
+        except:
+            st.error("설문 구성 파일을 읽는 중 오류가 발생했습니다."); st.stop()
     else:
         st.error("유효하지 않은 링크입니다."); st.stop()
 else:
@@ -51,7 +55,7 @@ if not is_respondent:
             with open(os.path.join(CONFIG_DIR, f"{survey_id}.json"), "w", encoding="utf-8") as f:
                 json.dump(full_structure, f, ensure_ascii=False, indent=2)
             st.code(f"{FULL_URL}?id={survey_id}")
-            st.success("링크가 생성되었습니다. 복사하여 사용하세요.")
+            st.success("링크가 생성되었습니다. 위 주소를 복사하여 응답자에게 전달하세요.")
 
 else:
     st.title(f"📝 {survey_data['goal']}")
@@ -83,27 +87,17 @@ else:
         .rank-value {{ font-weight: bold; font-size: 0.9em; display: block; margin-top: 2px; }}
         .mismatch {{ color: #fa5252 !important; font-weight: 800; }}
 
-        .card {{ background: #fff; padding: 30px; border-radius: 15px; text-align: center; margin-bottom: 20px; border: 1px solid #e9ecef; }}
+        .card {{ background: #fff; padding: 30px; border-radius: 15px; text-align: center; margin-bottom: 20px; border: 1px solid #e9ecef; box-shadow: 0 4px 12px rgba(0,0,0,0.03); }}
         
-        /* 센터 필 슬라이더 */
+        /* 센터 채우기 슬라이더 커스텀 */
         input[type=range] {{
-            -webkit-appearance: none;
-            width: 100%;
-            height: 12px;
-            background: #dee2e6;
-            border-radius: 6px;
-            outline: none;
-            margin: 35px 0;
+            -webkit-appearance: none; width: 100%; height: 12px; background: #dee2e6;
+            border-radius: 6px; outline: none; margin: 35px 0;
         }}
         input[type=range]::-webkit-slider-thumb {{
-            -webkit-appearance: none;
-            width: 24px;
-            height: 24px;
-            background: #228be6;
-            border: 3px solid white;
-            border-radius: 50%;
-            cursor: pointer;
-            box-shadow: 0 2px 6px rgba(0,0,0,0.2);
+            -webkit-appearance: none; appearance: none; width: 26px; height: 26px;
+            background: #228be6; border: 4px solid white; border-radius: 50%;
+            cursor: pointer; box-shadow: 0 2px 6px rgba(0,0,0,0.2); position: relative; z-index: 5;
         }}
 
         .button-group {{ display: grid; grid-template-columns: 1fr 1fr; gap: 15px; }}
@@ -129,7 +123,7 @@ else:
         <div id="step-ranking" class="step">
             <p><b>1단계:</b> 각 항목의 <b>기대 순위</b>를 정해주세요.</p>
             <div id="ranking-list" style="margin-bottom:20px;"></div>
-            <button class="btn" style="width:100%;" onclick="startCompare()">설문 시작하기</button>
+            <button class="btn" onclick="startCompare()">설문 시작하기</button>
         </div>
 
         <div id="step-compare" class="step">
@@ -143,7 +137,7 @@ else:
                     (기대 <span id="hint-a"></span>위) vs (기대 <span id="hint-b"></span>위)
                 </div>
                 <input type="range" id="slider" min="-4" max="4" value="0" step="1" oninput="updateUI()">
-                <div id="val-display" style="font-weight:bold; color:#495057; font-size:1.3em;">동등함</div>
+                <div id="val-display" style="font-weight:bold; color:#343a40; font-size:1.3em;">동등함</div>
             </div>
             
             <div class="button-group">
@@ -155,6 +149,7 @@ else:
         <div id="step-finish" class="step">
             <div style="text-align:center; padding:40px 0;">
                 <h2>✅ 모든 설문 완료</h2>
+                <p>아래 코드를 복사해서 제출해주세요.</p>
                 <textarea id="result-code" readonly style="width:100%; height:150px; padding:15px; border-radius:12px; border:1px solid #dee2e6; background:#f8f9fa; font-family:monospace;"></textarea>
             </div>
         </div>
@@ -188,7 +183,7 @@ else:
             for(let i=1; i<=items.length; i++) options += `<option value="${{i}}">${{i}}위</option>`;
             items.forEach((item, idx) => {{
                 listDiv.innerHTML += `<div style="display:flex; justify-content:space-between; padding:14px; background:#f8f9fa; border-radius:10px; margin-bottom:10px; align-items:center; border:1px solid #eee;">
-                    <span style="font-weight:bold;">${{item}}</span><select id="rank-${{idx}}">${{options}}</select></div>`;
+                    <span style="font-weight:bold;">${{item}}</span><select id="rank-${{idx}}" style="padding:6px;">${{options}}</select></div>`;
             }});
             showStep('step-ranking'); document.getElementById('live-board').style.display = 'none';
         }}
@@ -222,7 +217,7 @@ else:
             const p = pairs[pairIdx];
             document.getElementById('item-a').innerText = p.a; 
             document.getElementById('item-b').innerText = p.b;
-            // 갱신된 순위 데이터를 실시간 반영
+            // 실시간으로 갱신된 순위를 슬라이더 아래 힌트에 반영
             document.getElementById('hint-a').innerText = initialRanks[p.r];
             document.getElementById('hint-b').innerText = initialRanks[p.c];
             document.getElementById('slider').value = 0;
@@ -236,7 +231,7 @@ else:
             const val = parseInt(slider.value);
             const p = pairs[pairIdx]; const disp = document.getElementById('val-display');
             
-            // 가운데에서 채워지는 그라데이션 로직
+            // 중앙에서 채워지는 그라데이션 로직
             let perc = (val + 4) * 12.5;
             if(val < 0) slider.style.background = `linear-gradient(to right, #dee2e6 0%, #dee2e6 ${{perc}}%, #228be6 ${{perc}}%, #228be6 50%, #dee2e6 50%, #dee2e6 100%)`;
             else if(val > 0) slider.style.background = `linear-gradient(to right, #dee2e6 0%, #dee2e6 50%, #228be6 50%, #228be6 ${{perc}}%, #dee2e6 ${{perc}}%, #dee2e6 100%)`;
@@ -254,8 +249,8 @@ else:
             
             if (pairIdx === 0) {{
                 status.innerText = "✅ 기준 설정 중"; status.style.color = "#2f9e44";
-                let sortedInitial = items.map((name, i) => ({{name, rank: initialRanks[i]}})).sort((a,b) => a.rank - b.rank);
-                sortedInitial.forEach(item => {{
+                let sortedItems = items.map((name, i) => ({{name, rank: initialRanks[i]}})).sort((a,b) => a.rank - b.rank);
+                sortedItems.forEach(item => {{
                     grid.innerHTML += `<div class="board-item"><b>${{item.name}}</b><br><span class="rank-label">기대: ${{item.rank}}위</span></div>`;
                 }});
                 return;
@@ -263,13 +258,10 @@ else:
 
             let weights = calculateWeights();
             let sortedIdx = weights.map((w, i) => i).sort((a, b) => weights[b] - weights[a]);
-            let currentRanks = new Array(items.length);
-            sortedIdx.forEach((idx, i) => currentRanks[idx] = i + 1);
-
             let mismatch = false;
-            // 1등부터 좌측에서 우측으로 정렬하여 표시
+            
             sortedIdx.forEach((idx, i) => {{
-                const match = (i+1) === initialRanks[idx]; if(!match) mismatch = true;
+                const match = (i + 1) === initialRanks[idx]; if(!match) mismatch = true;
                 grid.innerHTML += `<div class="board-item" style="border-color:${{match?'#dee2e6':'#fa5252'}}">
                     <b>${{items[idx]}}</b><span class="rank-label">기대: ${{initialRanks[idx]}}위</span>
                     <span class="rank-value ${{match?'':'mismatch'}}">현재: ${{i+1}}위</span></div>`;
@@ -341,17 +333,19 @@ else:
     with st.form("save"):
         st.write("📋 **최종 데이터 제출**")
         respondent = st.text_input("응답자 성함")
-        code = st.text_area("결과 코드를 복사해서 붙여넣으세요")
-        if st.form_submit_button("최종 제출하기", type="primary", use_container_width=True):
+        code = st.text_area("위 박스의 결과 코드를 복사해서 붙여넣으세요")
+        if st.form_submit_button("설문 제출하기", type="primary", use_container_width=True):
             if respondent and code:
                 try:
                     json.loads(code)
                     goal_clean = survey_data["goal"].replace(" ", "_")
                     secret_key = survey_data.get("secret_key", "public")
                     if not os.path.exists("survey_data"): os.makedirs("survey_data")
-                    file_path = f"survey_data/{{secret_key}}_{{goal_clean}}.csv"
-                    save_data = {{ "Time": datetime.now().strftime("%Y-%m-%d %H:%M"), "Respondent": respondent, "Raw_Data": code }}
-                    df = pd.DataFrame([save_data]); try: old_df = pd.read_csv(file_path); except: old_df = pd.DataFrame()
+                    file_path = f"survey_data/{secret_key}_{goal_clean}.csv"
+                    save_data = { "Time": datetime.now().strftime("%Y-%m-%d %H:%M"), "Respondent": respondent, "Raw_Data": code }
+                    df = pd.DataFrame([save_data])
+                    try: old_df = pd.read_csv(file_path)
+                    except: old_df = pd.DataFrame()
                     pd.concat([old_df, df], ignore_index=True).to_csv(file_path, index=False)
-                    st.success("✅ 제출되었습니다!"); st.balloons()
+                    st.success("✅ 제출되었습니다! 감사합니다."); st.balloons()
                 except: st.error("코드가 올바르지 않습니다.")
