@@ -80,7 +80,7 @@ else:
         .ranking-board {{ background: #f1f3f5; padding: 18px; border-radius: 12px; margin-bottom: 25px; border: 1px solid #dee2e6; }}
         .board-title {{ font-weight: bold; color: #495057; font-size: 0.95em; margin-bottom: 15px; display: flex; justify-content: space-between; align-items: center; }}
         .board-grid {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 12px; }}
-        .board-item {{ background: white; padding: 12px; border-radius: 10px; text-align: center; font-size: 0.85em; border: 1px solid #dee2e6; }}
+        .board-item {{ background: white; padding: 12px; border-radius: 10px; text-align: center; font-size: 0.85em; border: 1px solid #dee2e6; transition: all 0.3s; }}
         .rank-badge {{ display: inline-block; padding: 2px 10px; border-radius: 20px; font-weight: bold; margin-bottom: 6px; font-size: 0.8em; }}
         
         .card {{ background: #fff; padding: 30px; border-radius: 15px; text-align: center; margin-bottom: 20px; border: 1px solid #e9ecef; box-shadow: 0 4px 12px rgba(0,0,0,0.03); }}
@@ -111,15 +111,18 @@ else:
         <div id="step-ranking" class="step">
             <p><b>1단계:</b> 각 항목의 <b>기대 순위</b>를 정해주세요.</p>
             <div id="ranking-list" style="margin-bottom:20px;"></div>
-            <button class="btn" onclick="startCompare()">설문 시작하기</button>
+            <button class="btn" onclick="startCompare()">비교 시작하기</button>
         </div>
 
         <div id="step-compare" class="step">
             <div class="card">
                 <div style="display:flex; justify-content:space-between; font-weight:bold; font-size:1.3em; margin-bottom:25px;">
                     <span id="item-a" style="color:#228be6;">A</span>
-                    <span style="color:#dee2e6;">VS</span>
+                    <span style="color:#dee2e6; font-weight:300;">VS</span>
                     <span id="item-b" style="color:#fa5252;">B</span>
+                </div>
+                <div style="font-size:0.9em; color:#adb5bd; margin-bottom:10px;">
+                    <span id="rank-hint-a"></span> vs <span id="rank-hint-b"></span>
                 </div>
                 <input type="range" id="slider" min="-4" max="4" value="0" step="1" oninput="updateUI()">
                 <div id="val-display" style="font-weight:bold; color:#343a40; font-size:1.3em;">동등함</div>
@@ -133,7 +136,7 @@ else:
 
         <div id="step-finish" class="step">
             <div style="text-align:center; padding:40px 0;">
-                <h2>✅ 설문 완료</h2>
+                <h2>✅ 모든 설문 완료</h2>
                 <textarea id="result-code" readonly style="width:100%; height:150px; padding:15px; border-radius:12px; border:1px solid #dee2e6; background:#f8f9fa; font-family:monospace;"></textarea>
             </div>
         </div>
@@ -142,7 +145,7 @@ else:
     <div id="modal" class="modal">
         <div class="modal-box">
             <h3 style="color:#fa5252; margin-top:0;">⚠️ 논리 불일치 알림</h3>
-            <p style="font-size:0.95em; color:#495057;">현재 응답이 초기에 설정한 기대 순위와 충돌합니다.</p>
+            <p style="font-size:0.95em; color:#495057;">현재 응답이 설정한 순위 논리와 상충합니다.</p>
             <div style="background:#f8f9fa; padding:15px; border-radius:12px; margin:20px 0; border:1px solid #eee;">
                 <div id="rec-val" class="highlight"></div>
             </div>
@@ -184,7 +187,7 @@ else:
             }}
             if(new Set(initialRanks).size !== initialRanks.length) {{ alert("중복 순위가 있습니다."); return; }}
             
-            // 질문 생성: 1위 vs 2위, 1위 vs 3위, 2위 vs 3위 순서로 정렬
+            // 질문 순서 재설계: 순위가 높은 것(1위)이 먼저 나오도록 정렬
             tempIdxMap.sort((a, b) => a.rank - b.rank);
             pairs = [];
             for(let i=0; i<tempIdxMap.length; i++) {{
@@ -193,7 +196,9 @@ else:
                         r: tempIdxMap[i].originIdx, 
                         c: tempIdxMap[j].originIdx, 
                         a: tempIdxMap[i].name, 
-                        b: tempIdxMap[j].name 
+                        b: tempIdxMap[j].name,
+                        rankA: tempIdxMap[i].rank,
+                        rankB: tempIdxMap[j].rank
                     }});
                 }}
             }}
@@ -208,6 +213,8 @@ else:
             const p = pairs[pairIdx];
             document.getElementById('item-a').innerText = p.a; 
             document.getElementById('item-b').innerText = p.b;
+            document.getElementById('rank-hint-a').innerText = `기대 ${{p.rankA}}위`;
+            document.getElementById('rank-hint-b').innerText = `기대 ${{p.rankB}}위`;
             document.getElementById('slider').value = 0;
             document.getElementById('back-btn').style.visibility = (pairIdx === 0) ? 'hidden' : 'visible';
             document.getElementById('live-board').style.display = 'block';
@@ -226,9 +233,10 @@ else:
         function updateBoard() {{
             const grid = document.getElementById('board-grid'); grid.innerHTML = "";
             const status = document.getElementById('logic-status');
+            const val = parseInt(document.getElementById('slider').value);
             
-            // 첫 질문일 때는 아무런 모순이 없으므로 정상 표시
-            if (pairIdx === 0 && parseInt(document.getElementById('slider').value) === 0) {{
+            // 첫 번째 질문일 때는 어떠한 슬라이더 값이라도 "논리적 결함 없음"으로 시작
+            if (pairIdx === 0) {{
                 status.innerText = "✅ 논리적 결함 없음";
                 status.style.background = "#ebfbee"; status.style.color = "#2f9e44";
                 items.forEach((item, i) => {{
@@ -273,9 +281,12 @@ else:
             const sliderVal = parseInt(document.getElementById('slider').value);
             const p = pairs[pairIdx];
             
-            // 순위가 높은 쪽(p.a)을 왼쪽에 두었으므로, sliderVal이 양수(+)면 순위 역전임
+            // 첫 질문은 기준점이므로 방향 체크 없이 통과
+            if (pairIdx === 0) {{ saveAndNext(); return; }}
+
+            // 순위 높은 쪽(p.a)이 왼쪽이므로, sliderVal이 양수(+)면 순위 역전임
             if (sliderVal > 0) {{
-                document.getElementById('rec-val').innerText = `설정하신 순위로는 "${{p.a}}"가 더 우세해야 합니다.`;
+                document.getElementById('rec-val').innerText = `설정하신 순위(A:${{p.rankA}}위, B:${{p.rankB}}위)로는 "${{p.a}}"가 더 우세해야 합니다.`;
                 document.getElementById('modal').style.display = 'flex';
                 return;
             }}
