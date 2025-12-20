@@ -86,7 +86,7 @@ else:
             transition: all 0.3s ease;
         }}
         
-        /* 붉은 테두리 */
+        /* 붉은 테두리 (순위 역전) */
         .flipped-card {{
             border: 2px solid #fa5252 !important;
             background-color: #fff5f5 !important;
@@ -113,9 +113,6 @@ else:
         .modal {{ display: none; position: fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.7); justify-content:center; align-items:center; z-index:9999; }}
         .modal-box {{ background:white; padding:35px; border-radius:20px; width:90%; max-width:450px; text-align:center; }}
         
-        .cr-info {{ background: #fff9db; padding: 15px; border-radius: 8px; margin: 15px 0; text-align: left; font-size: 0.9em; border: 1px solid #ffe066; color: #495057; }}
-        .rec-val {{ color: #e67700; font-weight: bold; font-size: 1.1em; }}
-
         .flip-list {{ text-align: left; background: #fff5f5; padding: 15px; border-radius: 8px; margin-bottom: 20px; border: 1px solid #ffc9c9; font-size: 0.9em; color: #c92a2a; }}
         .flip-item {{ margin-bottom: 4px; font-weight: bold; }}
     </style>
@@ -178,30 +175,10 @@ else:
         </div>
     </div>
 
-    <div id="modal-cr" class="modal">
-        <div class="modal-box">
-            <h3 style="color:#fab005; margin-top:0;">💡 답변 일관성 확인</h3>
-            <p style="font-size:0.95em; color:#495057; margin-bottom:15px;">
-                앞서 응답하신 내용들과 비교했을 때,<br>
-                현재 점수는 <b>논리적 일관성</b>이 다소 부족합니다. (CR > 0.1)
-            </p>
-            <div class="cr-info">
-                <div>🧠 <b>AI 추천값:</b> <span id="rec-text" class="rec-val"></span></div>
-                <div style="color:#868e96; font-size:0.85em; margin-top:5px;">(다른 항목들과의 관계를 고려한 최적값)</div>
-            </div>
-            <div style="display:grid; gap:12px;">
-                <button class="btn" onclick="closeModal('cr', 'use_rec')" style="background:#228be6;">👌 추천값 적용 (재설문)</button>
-                <button class="btn" onclick="closeModal('cr', 'keep')" style="background:#adb5bd;">➡️ 기존 값 유지 (강행)</button>
-            </div>
-        </div>
-    </div>
-
     <script>
         const tasks = {js_tasks};
         let currentTaskIdx = 0, items = [], pairs = [], matrix = [], pairIdx = 0, initialRanks = [];
         let allAnswers = {{}};
-        let recommendedWeight = 1; 
-        const RI_TABLE = [0, 0, 0, 0.58, 0.90, 1.12, 1.24, 1.32, 1.41, 1.45, 1.49];
 
         function loadTask() {{
             if (currentTaskIdx >= tasks.length) {{ finishAll(); return; }}
@@ -272,6 +249,7 @@ else:
             let val = parseInt(slider.value);
             const p = pairs[pairIdx];
 
+            // [슬라이더 제한 경고]
             if (initialRanks[p.r] < initialRanks[p.c] && val > 0) {{
                 alert(`🚫 [입력 제한] \\n\\n이미 '${{p.a}}' 항목을 상위 순위로 설정하셨습니다.\\n따라서 점수도 '${{p.a}}' 쪽(왼쪽)으로만 줄 수 있습니다.`);
                 slider.value = 0; val = 0;
@@ -377,51 +355,11 @@ else:
             return weights.map(v => v / sum);
         }}
 
-        function getCR(currentVal) {{
-            const n = items.length;
-            if (n <= 2) return 0;
-            
-            let tempMatrix = matrix.map(row => [...row]);
-            let p = pairs[pairIdx];
-            let w_abs = Math.abs(currentVal) + 1;
-            let w_final = (currentVal <= 0) ? w_abs : (1 / w_abs);
-
-            tempMatrix[p.r][p.c] = w_final; tempMatrix[p.c][p.r] = 1 / w_final;
-            
-            for(let i=0; i<n; i++) {{ for(let j=0; j<n; j++) {{ if(tempMatrix[i][j] === 0) tempMatrix[i][j] = 1; }} }}
-            let weights = tempMatrix.map(row => Math.pow(row.reduce((a, b) => a * b, 1), 1/n));
-            let sum = weights.reduce((a, b) => a + b, 0);
-            let normWeights = weights.map(v => v / sum);
-
-            let lambdaMax = 0;
-            for(let i=0; i<n; i++) {{
-                let colSum = 0;
-                for(let j=0; j<n; j++) colSum += tempMatrix[j][i];
-                lambdaMax += colSum * normWeights[i];
-            }}
-            let ci = (lambdaMax - n) / (n - 1);
-            let ri = RI_TABLE[n] || 1.49;
-            return ci / ri;
-        }}
-
-        function getRecommendedWeight() {{
-            const n = items.length; const p = pairs[pairIdx];
-            let indirectVals = [];
-            for(let k=0; k<n; k++) {{
-                if(k !== p.r && k !== p.c && matrix[p.r][k] !== 0 && matrix[k][p.c] !== 0) {{
-                    indirectVals.push(matrix[p.r][k] * matrix[k][p.c]);
-                }}
-            }}
-            if(indirectVals.length === 0) return 1;
-            let geoMean = Math.exp(indirectVals.reduce((acc, v) => acc + Math.log(v), 0) / indirectVals.length);
-            if(geoMean >= 1) return Math.round(geoMean);
-            else return 1 / Math.round(1/geoMean);
-        }}
-
         function checkLogic() {{
             if (pairIdx === 0) {{ saveAndNext(); return; }}
             const sliderVal = parseInt(document.getElementById('slider').value);
             
+            // 1. 역전 체크 (Flip Check)
             let weights = calculateWeights(sliderVal);
             const EPSILON = 0.00001;
             let indexedWeights = weights.map((w, i) => ({{w, i}})).sort((a,b) => {{
@@ -451,45 +389,20 @@ else:
                 return; 
             }}
 
-            if (pairIdx >= 2) {{
-                let cr = getCR(sliderVal);
-                if (cr > 0.1) {{
-                    let recW = getRecommendedWeight();
-                    recommendedWeight = recW;
-                    
-                    let txt = "동등 (1:1)";
-                    const p = pairs[pairIdx];
-                    if (recW > 1) txt = `왼쪽(${{p.a}}) ${{Math.round(recW)}}배`;
-                    else if (recW < 1) txt = `오른쪽(${{p.b}}) ${{Math.round(1/recW)}}배`;
-                    
-                    document.getElementById('rec-text').innerText = txt;
-                    document.getElementById('modal-cr').style.display = 'flex';
-                    return;
-                }}
-            }}
-
+            // CR 체크 로직 제거 (데이터 센터에서 처리)
             saveAndNext();
         }}
 
         function closeModal(type, action) {{
             document.getElementById('modal-' + type).style.display = 'none';
             if (type === 'flip') {{
-                if(action === 'updaterank') {{ saveAndNext(); }} 
-                else {{ document.getElementById('slider').value = 0; updateUI(); }}
-            }} else if (type === 'cr') {{
-                if(action === 'use_rec') {{
-                    let newVal = 0;
-                    if (recommendedWeight > 1) newVal = -1 * (Math.round(recommendedWeight) - 1);
-                    else if (recommendedWeight < 1) newVal = Math.round(1/recommendedWeight) - 1;
-                    
-                    if(initialRanks[pairs[pairIdx].r] < initialRanks[pairs[pairIdx].c] && newVal > 0) newVal = 0;
-                    if(initialRanks[pairs[pairIdx].r] > initialRanks[pairs[pairIdx].c] && newVal < 0) newVal = 0;
-
-                    if (newVal < -4) newVal = -4; if (newVal > 4) newVal = 4;
-                    document.getElementById('slider').value = newVal;
-                    updateUI(); 
-                }} else {{
+                if(action === 'updaterank') {{
+                    let weights = calculateWeights();
+                    let sortedIdx = weights.map((w, i) => i).sort((a, b) => weights[b] - weights[a]);
+                    sortedIdx.forEach((idx, i) => {{ initialRanks[idx] = i + 1; }});
                     saveAndNext();
+                }} else {{
+                    document.getElementById('slider').value = 0; updateUI();
                 }}
             }}
         }}
