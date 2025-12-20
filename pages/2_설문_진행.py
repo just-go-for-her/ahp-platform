@@ -77,14 +77,13 @@ else:
         .container {{ max-width: 700px; margin: 0 auto; background: white; padding: 25px; border-radius: 15px; box-shadow: 0 4px 15px rgba(0,0,0,0.05); }}
         .step {{ display: none; }} .active {{ display: block; }}
         
-        /* 실시간 보드 스타일 */
         .ranking-board {{ background: #f1f3f5; padding: 18px; border-radius: 12px; margin-bottom: 25px; border: 1px solid #dee2e6; }}
         .board-title {{ font-weight: bold; color: #495057; font-size: 0.9em; margin-bottom: 15px; display: flex; justify-content: space-between; }}
         .board-grid {{ display: flex; gap: 10px; overflow-x: auto; padding-bottom: 5px; }}
         .board-item {{ min-width: 125px; background: white; padding: 12px; border-radius: 10px; text-align: center; border: 1px solid #dee2e6; flex: 1; }}
         
-        .rank-label {{ font-size: 0.75em; color: #868e96; display: block; margin-bottom: 2px; }}
-        .rank-value {{ font-weight: bold; font-size: 0.9em; display: block; }}
+        .rank-label {{ font-size: 0.75em; color: #868e96; display: block; }}
+        .rank-value {{ font-weight: bold; font-size: 0.9em; display: block; margin-top: 2px; }}
         .mismatch {{ color: #fa5252 !important; }}
         .match {{ color: #228be6 !important; }}
 
@@ -96,7 +95,7 @@ else:
         .btn-secondary {{ background: #adb5bd; }}
 
         .modal {{ display: none; position: fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.7); justify-content:center; align-items:center; z-index:9999; }}
-        .modal-box {{ background:white; padding:30px; border-radius:20px; width:90%; max-width:400px; text-align:center; }}
+        .modal-box {{ background:white; padding:35px; border-radius:20px; width:90%; max-width:450px; text-align:center; }}
     </style>
     </head>
     <body>
@@ -106,7 +105,7 @@ else:
         <div id="live-board" class="ranking-board" style="display:none;">
             <div class="board-title">
                 <span>📊 실시간 순위 현황 (1등 → N등)</span>
-                <span id="logic-status">상태 확인 중</span>
+                <span id="logic-status">체크 중</span>
             </div>
             <div id="board-grid" class="board-grid"></div>
         </div>
@@ -147,14 +146,14 @@ else:
 
     <div id="modal" class="modal">
         <div class="modal-box">
-            <h3 style="color:#fa5252; margin-top:0;">⚠️ 순위 모순 발생</h3>
-            <p style="font-size:0.9em; color:#495057; margin-bottom:20px;">
-                현재 선택이 초기에 설정한 순위와 다릅니다.<br><b>순위를 변경</b>하시겠습니까, 아니면 <b>응답을 수정</b>하시겠습니까?
+            <h3 style="color:#fa5252; margin-top:0;">⚠️ 순위 불일치 및 일관성 오류</h3>
+            <p style="font-size:0.95em; color:#495057; line-height:1.6; margin-bottom:25px;">
+                현재 응답을 적용하면 기존에 설정한 순위가 뒤바뀌거나,<br>이전 답변들과의 수학적 논리가 어긋납니다.
             </p>
-            <div style="display:grid; gap:10px;">
-                <button class="btn" onclick="closeModal('resurvey')">슬라이더 재조정 (순위 유지)</button>
-                <button class="btn" onclick="closeModal('updaterank')" style="background:#868e96;">현재 응답대로 순위 변경</button>
-                <button class="btn" onclick="closeModal('back')" style="background:#adb5bd;">이전 질문으로 가기</button>
+            <div style="display:grid; gap:12px;">
+                <button class="btn" onclick="closeModal('resurvey')" style="background:#228be6;">📍 슬라이더 수정 (기존 순위 유지)</button>
+                <button class="btn" onclick="closeModal('updaterank')" style="background:#868e96;">🔄 현재 응답대로 순위 데이터 변경</button>
+                <button class="btn" onclick="closeModal('back')" style="background:#adb5bd;">⬅️ 이전 질문으로 돌아가기</button>
             </div>
         </div>
     </div>
@@ -225,6 +224,8 @@ else:
         function updateUI() {{
             const val = parseInt(document.getElementById('slider').value);
             const p = pairs[pairIdx]; const disp = document.getElementById('val-display');
+            
+            // 슬라이더 1:1 기반 직관적 증분 (왼쪽 이동 시 1->2->3 순서)
             if(val == 0) disp.innerText = "동등함 (1:1)";
             else if(val < 0) disp.innerText = `${{p.a}} ${{Math.abs(val)+1}}배 중요`;
             else disp.innerText = `${{p.b}} ${{val+1}}배 중요`;
@@ -235,15 +236,13 @@ else:
             const grid = document.getElementById('board-grid'); grid.innerHTML = "";
             const status = document.getElementById('logic-status');
             
-            // 첫 질문 시에는 기준점이 없으므로 기대 순위 순서대로 고정
             if (pairIdx === 0) {{
-                status.innerText = "✅ 논리 일치";
-                status.style.color = "#2f9e44";
+                status.innerText = "✅ 기준 설정 중"; status.style.color = "#2f9e44";
                 let sortedInitial = items.map((name, i) => ({{name, rank: initialRanks[i]}})).sort((a,b) => a.rank - b.rank);
                 sortedInitial.forEach(item => {{
                     grid.innerHTML += `<div class="board-item">
                         <div style="font-weight:bold; color:#495057;">${{item.name}}</div>
-                        <div class="rank-info"><span class="rank-label">기대: ${{item.rank}}위</span></div>
+                        <span class="rank-label">기대: ${{item.rank}}위</span>
                     </div>`;
                 }});
                 return;
@@ -255,6 +254,7 @@ else:
             sortedIdx.forEach((idx, i) => currentRanks[idx] = i + 1);
 
             let mismatch = false;
+            // 1등부터 순서대로 좌->우 배열
             sortedIdx.forEach((idx, i) => {{
                 const item = items[idx];
                 const curRank = i + 1;
@@ -264,14 +264,12 @@ else:
                 
                 grid.innerHTML += `<div class="board-item" style="border-color:${{isMatch?'#dee2e6':'#fa5252'}}">
                     <div style="font-weight:bold; color:#495057;">${{item}}</div>
-                    <div class="rank-info">
-                        <span class="rank-label">기대: ${{expRank}}위</span>
-                        <span class="rank-value ${{isMatch?'match':'mismatch'}}">현재: ${{curRank}}위</span>
-                    </div>
+                    <span class="rank-label">기대: ${{expRank}}위</span>
+                    <span class="rank-value ${{isMatch?'match':'mismatch'}}">현재: ${{curRank}}위</span>
                 </div>`;
             }});
 
-            status.innerText = mismatch ? "⚠️ 순위 변동 발생" : "✅ 논리 일치";
+            status.innerText = mismatch ? "⚠️ 순위 변동 위험" : "✅ 논리 일치";
             status.style.color = mismatch ? "#fa5252" : "#2f9e44";
         }}
 
@@ -289,9 +287,30 @@ else:
 
         function checkLogic() {{
             const sliderVal = parseInt(document.getElementById('slider').value);
+            const p = pairs[pairIdx];
             if (pairIdx === 0) {{ saveAndNext(); return; }}
-            // 왼쪽(A)이 상위 순위이므로, 오른쪽(B) 우세 선택 시 역전 발생
-            if (sliderVal > 0) {{
+
+            // 1. 단순 순위 역전 체크 (A가 상위인데 B 우세 선택)
+            const isReverse = sliderVal > 0;
+
+            // 2. 수학적 일관성 체크 (A->B * B->C 로직)
+            let geoMean = 1;
+            let currentWeight = sliderVal === 0 ? 1 : (sliderVal < 0 ? Math.abs(sliderVal)+1 : 1/(sliderVal+1));
+            const n = items.length;
+            let estimates = [];
+            for(let k=0; k<n; k++) {{
+                if(k === p.r || k === p.c) continue;
+                if(matrix[p.r][k] !== 0 && matrix[k][p.c] !== 0) estimates.push(matrix[p.r][k] * matrix[k][p.c]);
+            }}
+            
+            let consistencyError = false;
+            if(estimates.length > 0) {{
+                geoMean = Math.exp(estimates.reduce((acc, v) => acc + Math.log(v), 0) / estimates.length);
+                const ratio = currentWeight > geoMean ? currentWeight / geoMean : geoMean / currentWeight;
+                if(ratio >= 2.0) consistencyError = true;
+            }}
+
+            if (isReverse || consistencyError) {{
                 document.getElementById('modal').style.display = 'flex';
                 return;
             }}
@@ -343,7 +362,7 @@ else:
     with st.form("save"):
         st.write("📋 **최종 데이터 제출**")
         respondent = st.text_input("응답자 성함")
-        code = st.text_area("위 박스의 결과 코드를 복사해서 붙여넣으세요")
+        code = st.text_area("결과 코드를 복사해서 붙여넣으세요")
         if st.form_submit_button("설문 제출하기", type="primary", use_container_width=True):
             if respondent and code:
                 try:
@@ -357,5 +376,5 @@ else:
                     try: old_df = pd.read_csv(file_path)
                     except: old_df = pd.DataFrame()
                     pd.concat([old_df, df], ignore_index=True).to_csv(file_path, index=False)
-                    st.success("✅ 제출되었습니다!"); st.balloons()
+                    st.success("✅ 제출되었습니다! 감사합니다."); st.balloons()
                 except: st.error("코드가 올바르지 않습니다.")
