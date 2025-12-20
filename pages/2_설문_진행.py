@@ -49,7 +49,7 @@ if not is_respondent:
             with open(os.path.join(CONFIG_DIR, f"{survey_id}.json"), "w", encoding="utf-8") as f:
                 json.dump(full_structure, f, ensure_ascii=False, indent=2)
             st.code(f"{FULL_URL}?id={survey_id}")
-            st.success("링크 생성 완료!")
+            st.success("링크가 생성되었습니다.")
 
 else:
     st.title(f"📝 {survey_data['goal']}")
@@ -72,20 +72,19 @@ else:
         .container {{ max-width: 700px; margin: 0 auto; background: white; padding: 25px; border-radius: 15px; box-shadow: 0 4px 15px rgba(0,0,0,0.05); }}
         .step {{ display: none; }} .active {{ display: block; }}
         
-        /* 실시간 랭킹 보드 레이아웃 */
         .ranking-board {{ background: #f1f3f5; padding: 18px; border-radius: 12px; margin-bottom: 25px; border: 1px solid #dee2e6; }}
-        .board-title {{ font-weight: bold; color: #495057; font-size: 0.9em; margin-bottom: 15px; display: flex; justify-content: space-between; align-items: center; }}
+        .board-title {{ font-weight: bold; color: #495057; font-size: 0.95em; margin-bottom: 15px; display: flex; justify-content: space-between; align-items: center; }}
         .status-pill {{ padding: 4px 12px; border-radius: 20px; font-size: 0.82em; font-weight: bold; }}
         
         .board-grid {{ display: flex; gap: 10px; overflow-x: auto; padding-bottom: 8px; }}
-        .board-item {{ min-width: 150px; background: white; padding: 15px; border-radius: 12px; text-align: center; border: 1px solid #dee2e6; flex: 1; display: flex; flex-direction: column; gap: 6px; }}
+        .board-item {{ min-width: 150px; background: white; padding: 12px; border-radius: 10px; text-align: center; border: 1px solid #dee2e6; flex: 1; }}
         
-        .item-name {{ font-weight: 800; color: #343a40; border-bottom: 1px solid #f1f3f5; padding-bottom: 6px; margin-bottom: 2px; }}
-        .rank-row {{ display: flex; justify-content: space-between; align-items: center; font-size: 0.85em; color: #666; padding: 0 4px; }}
-        .rank-val {{ font-weight: bold; color: #333; }}
-        /* 순위 변동(오류) 발생 시 강조 색상 */
-        .error-color {{ color: #fa5252 !important; text-decoration: underline; font-weight: 800; }}
-        .match-color {{ color: #228be6; }}
+        .item-name {{ font-weight: 800; color: #343a40; margin-bottom: 8px; display: block; border-bottom: 1px solid #f1f3f5; padding-bottom: 5px; }}
+        .rank-info-line {{ font-size: 0.85em; color: #666; margin: 3px 0; display: flex; justify-content: center; gap: 5px; }}
+        .rank-val {{ font-weight: bold; color: #444; }}
+        /* 오류 상황: 변동 순위가 기존과 다를 때만 빨간색 */
+        .error-text {{ color: #fa5252 !important; font-weight: 800; text-decoration: underline; }}
+        .match-text {{ color: #228be6; }}
 
         .card {{ background: #fff; padding: 30px; border-radius: 15px; text-align: center; margin-bottom: 20px; border: 1px solid #e9ecef; box-shadow: 0 4px 12px rgba(0,0,0,0.03); }}
         input[type=range] {{ -webkit-appearance: none; width: 100%; height: 12px; background: #dee2e6; border-radius: 6px; outline: none; margin: 35px 0; }}
@@ -113,7 +112,7 @@ else:
         </div>
 
         <div id="step-ranking" class="step">
-            <p><b>1단계:</b> 각 항목의 중요도 순위를 먼저 정해주세요.</p>
+            <p><b>1단계:</b> 설정하신 항목들의 중요도 순위를 정해주세요.</p>
             <div id="ranking-list" style="margin-bottom:20px;"></div>
             <button class="btn" onclick="startCompare()">설문 시작하기</button>
         </div>
@@ -150,7 +149,7 @@ else:
         <div class="modal-box">
             <h3 style="color:#fa5252; margin-top:0;">⚠️ 순위 변동 위험 감지</h3>
             <p style="font-size:0.95em; color:#495057; line-height:1.7; margin-bottom:25px;">
-                현재 응답을 적용하면 <b>이전 답변들과의 관계</b> 때문에<br>처음에 설정한 순위가 뒤바뀌게 됩니다.
+                현재 응답을 적용하면 <b>이전 답변들과의 관계</b> 때문에<br>기존에 설정한 순위가 뒤바뀌게 됩니다.
             </p>
             <div style="display:grid; gap:12px;">
                 <button class="btn" onclick="closeModal('resurvey')" style="background:#228be6;">👈 현재 답변 수정 (기존 순위 유지)</button>
@@ -182,7 +181,7 @@ else:
             initialRanks = []; let tempIdxMap = [];
             for(let i=0; i<items.length; i++) {{
                 const el = document.getElementById('rank-'+i);
-                if(!el.value) {{ alert("순위를 정해주세요."); return; }}
+                if(!el.value) {{ alert("순위를 모두 정해주세요."); return; }}
                 initialRanks[i] = parseInt(el.value);
                 tempIdxMap.push({{ name: items[i], rank: initialRanks[i], originIdx: i }});
             }}
@@ -220,9 +219,9 @@ else:
             let val = parseInt(slider.value);
             const p = pairs[pairIdx];
 
-            // [조작 실수 차단 로직]
+            // [조작 실수 차단] 직관적인 메시지로 변경
             if (val > 0) {{
-                alert(`⚠️ 안내: 현재 [${{p.a}}] 항목이 상위 순위로 설정되어 있습니다.\\n논리적 일관성을 위해 왼쪽 방향으로만 가중치를 선택해 주세요.`);
+                alert(`⚠️ 조작 오류: [${{p.a}}] 항목이 상위 순위입니다.\\n논리적 일관성을 위해 왼쪽 방향으로만 가중치를 선택하실 수 있습니다.`);
                 slider.value = 0; val = 0;
             }}
 
@@ -242,12 +241,9 @@ else:
             
             if (pairIdx === 0) {{
                 pill.innerText = "✅ 논리 일치"; pill.style.background = "#ebfbee"; pill.style.color = "#2f9e44";
-                let sortedItems = items.map((name, i) => ({{name, rank: initialRanks[i]}})).sort((a,b) => a.rank - b.rank);
-                sortedItems.forEach(item => {{
-                    grid.innerHTML += `<div class="board-item">
-                        <span class="item-name">${{item.name}}</span>
-                        <div class="rank-row"><span>기존 순위:</span><span class="rank-val">${{item.rank}}위</span></div>
-                    </div>`;
+                let sortedInitial = items.map((name, i) => ({{name, rank: initialRanks[i]}})).sort((a,b) => a.rank - b.rank);
+                sortedInitial.forEach(item => {{
+                    grid.innerHTML += `<div class="board-item"><span class="item-name">${{item.name}}</span><div class="rank-info-line">기존 순위: <span class="rank-val">${{item.rank}}위</span></div></div>`;
                 }});
                 return;
             }}
@@ -264,12 +260,8 @@ else:
                 
                 grid.innerHTML += `<div class="board-item" style="border-color:${{isMatch?'#dee2e6':'#fa5252'}}">
                     <span class="item-name">${{items[idx]}}</span>
-                    <div class="rank-row">
-                        <span>기존 순위:</span><span class="rank-val">${{orgRank}}위</span>
-                    </div>
-                    <div class="rank-row">
-                        <span>변동 순위:</span><span class="rank-val ${{isMatch?'match-color':'error-color'}}">${{curRank}}위</span>
-                    </div>
+                    <div class="rank-info-line">기존 순위: <span class="rank-val">${{orgRank}}위</span></div>
+                    <div class="rank-info-line">변동 순위: <span class="rank-val ${{isMatch?'match-text':'error-text'}}">${{curRank}}위</span></div>
                 </div>`;
             }});
 
@@ -306,7 +298,6 @@ else:
                 let weights = calculateWeights();
                 let sortedIdx = weights.map((w, i) => i).sort((a, b) => weights[b] - weights[a]);
                 sortedIdx.forEach((idx, i) => {{ initialRanks[idx] = i + 1; }});
-                // 남은 질문 좌우 자동 정렬
                 for (let k = pairIdx; k < pairs.length; k++) {{
                     let p = pairs[k];
                     if (initialRanks[p.r] > initialRanks[p.c]) {{
@@ -358,8 +349,11 @@ else:
                     secret_key = survey_data.get("secret_key", "public")
                     if not os.path.exists("survey_data"): os.makedirs("survey_data")
                     file_path = f"survey_data/{secret_key}_{goal_clean}.csv"
+                    # 파이썬 딕셔너리 기호 처리 완료
                     save_dict = {"Time": datetime.now().strftime("%Y-%m-%d %H:%M"), "Respondent": respondent, "Raw_Data": code}
-                    df = pd.DataFrame([save_dict]); try: old_df = pd.read_csv(file_path); except: old_df = pd.DataFrame()
+                    df = pd.DataFrame([save_dict])
+                    try: old_df = pd.read_csv(file_path)
+                    except: old_df = pd.DataFrame()
                     pd.concat([old_df, df], ignore_index=True).to_csv(file_path, index=False)
                     st.success("✅ 제출 성공!"); st.balloons()
                 except: st.error("코드 오류")
