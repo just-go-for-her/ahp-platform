@@ -9,7 +9,7 @@ import uuid
 # ==============================================================================
 # [설정] 본인의 실제 배포 주소 입력
 # ==============================================================================
-FULL_URL = "https://ahp-platform-bbee45epwqjjy2zfpccz7p.streamlit.app/%EC%84%A4%EB%AC%B8_%EC%A7%84%0A%ED%96%89"
+FULL_URL = "https://ahp-platform-bbee45epwqjjy2zfpccz7p.streamlit.app/%EC%84%A4%EB%AC%B8_%EC%A7%84%ED%96%89"
 # ==============================================================================
 
 CONFIG_DIR = "survey_config"
@@ -51,7 +51,7 @@ if not is_respondent:
             with open(os.path.join(CONFIG_DIR, f"{survey_id}.json"), "w", encoding="utf-8") as f:
                 json.dump(full_structure, f, ensure_ascii=False, indent=2)
             st.code(f"{FULL_URL}?id={survey_id}")
-            st.success("링크가 생성되었습니다.")
+            st.success("링크가 생성되었습니다. 복사하여 사용하세요.")
 
 else:
     st.title(f"📝 {survey_data['goal']}")
@@ -77,15 +77,15 @@ else:
         .ranking-board {{ background: #f1f3f5; padding: 18px; border-radius: 12px; margin-bottom: 25px; border: 1px solid #dee2e6; }}
         .board-title {{ font-weight: bold; color: #495057; font-size: 0.9em; margin-bottom: 15px; display: flex; justify-content: space-between; }}
         .board-grid {{ display: flex; gap: 10px; overflow-x: auto; padding-bottom: 5px; }}
-        .board-item {{ min-width: 130px; background: white; padding: 12px; border-radius: 10px; text-align: center; border: 1px solid #dee2e6; flex: 1; }}
+        .board-item {{ min-width: 135px; background: white; padding: 12px; border-radius: 10px; text-align: center; border: 1px solid #dee2e6; flex: 1; }}
         
         .rank-label {{ font-size: 0.75em; color: #868e96; display: block; }}
         .rank-value {{ font-weight: bold; font-size: 0.9em; display: block; margin-top: 2px; }}
-        .mismatch {{ color: #fa5252 !important; }}
+        .mismatch {{ color: #fa5252 !important; font-weight: 800; }}
 
-        .card {{ background: #fff; padding: 30px; border-radius: 15px; text-align: center; margin-bottom: 20px; border: 1px solid #e9ecef; box-shadow: 0 4px 12px rgba(0,0,0,0.03); }}
+        .card {{ background: #fff; padding: 30px; border-radius: 15px; text-align: center; margin-bottom: 20px; border: 1px solid #e9ecef; }}
         
-        /* 센터 게이지 슬라이더 */
+        /* 센터 필 슬라이더 */
         input[type=range] {{
             -webkit-appearance: none;
             width: 100%;
@@ -121,7 +121,7 @@ else:
         <div id="live-board" class="ranking-board" style="display:none;">
             <div class="board-title">
                 <span>📊 실시간 순위 현황 (1등 → N등)</span>
-                <span id="logic-status">체크 중</span>
+                <span id="logic-status">상태 체크 중</span>
             </div>
             <div id="board-grid" class="board-grid"></div>
         </div>
@@ -139,11 +139,11 @@ else:
                     <span style="color:#dee2e6;">VS</span>
                     <span id="item-b" style="color:#fa5252;">B</span>
                 </div>
-                <div style="font-size:0.9em; color:#adb5bd; margin-bottom:10px;">
+                <div style="font-size:0.85em; color:#adb5bd; margin-bottom:10px;">
                     (기대 <span id="hint-a"></span>위) vs (기대 <span id="hint-b"></span>위)
                 </div>
                 <input type="range" id="slider" min="-4" max="4" value="0" step="1" oninput="updateUI()">
-                <div id="val-display" style="font-weight:bold; color:#343a40; font-size:1.25em;">동등함</div>
+                <div id="val-display" style="font-weight:bold; color:#495057; font-size:1.3em;">동등함</div>
             </div>
             
             <div class="button-group">
@@ -203,13 +203,6 @@ else:
             }}
             if(new Set(initialRanks).size !== initialRanks.length) {{ alert("중복 순위가 있습니다."); return; }}
             
-            generatePairs(tempIdxMap);
-            const n = items.length; matrix = Array.from({{length: n}}, () => Array(n).fill(0));
-            for(let i=0; i<n; i++) matrix[i][i] = 1;
-            pairIdx = 0; showStep('step-compare'); renderPair();
-        }}
-
-        function generatePairs(tempIdxMap) {{
             tempIdxMap.sort((a, b) => a.rank - b.rank);
             pairs = [];
             for(let i=0; i<tempIdxMap.length; i++) {{
@@ -220,13 +213,16 @@ else:
                     }});
                 }}
             }}
+            const n = items.length; matrix = Array.from({{length: n}}, () => Array(n).fill(0));
+            for(let i=0; i<n; i++) matrix[i][i] = 1;
+            pairIdx = 0; showStep('step-compare'); renderPair();
         }}
 
         function renderPair() {{
             const p = pairs[pairIdx];
             document.getElementById('item-a').innerText = p.a; 
             document.getElementById('item-b').innerText = p.b;
-            // [중요] 초기화 및 업데이트된 initialRanks에서 직접 순위 참조
+            // 갱신된 순위 데이터를 실시간 반영
             document.getElementById('hint-a').innerText = initialRanks[p.r];
             document.getElementById('hint-b').innerText = initialRanks[p.c];
             document.getElementById('slider').value = 0;
@@ -240,7 +236,7 @@ else:
             const val = parseInt(slider.value);
             const p = pairs[pairIdx]; const disp = document.getElementById('val-display');
             
-            // 게이지 시각화 로직
+            // 가운데에서 채워지는 그라데이션 로직
             let perc = (val + 4) * 12.5;
             if(val < 0) slider.style.background = `linear-gradient(to right, #dee2e6 0%, #dee2e6 ${{perc}}%, #228be6 ${{perc}}%, #228be6 50%, #dee2e6 50%, #dee2e6 100%)`;
             else if(val > 0) slider.style.background = `linear-gradient(to right, #dee2e6 0%, #dee2e6 50%, #228be6 50%, #228be6 ${{perc}}%, #dee2e6 ${{perc}}%, #dee2e6 100%)`;
@@ -258,8 +254,9 @@ else:
             
             if (pairIdx === 0) {{
                 status.innerText = "✅ 기준 설정 중"; status.style.color = "#2f9e44";
-                items.forEach((item, i) => {{
-                    grid.innerHTML += `<div class="board-item"><b>${{item}}</b><br><span class="rank-label">기대: ${{initialRanks[i]}}위</span></div>`;
+                let sortedInitial = items.map((name, i) => ({{name, rank: initialRanks[i]}})).sort((a,b) => a.rank - b.rank);
+                sortedInitial.forEach(item => {{
+                    grid.innerHTML += `<div class="board-item"><b>${{item.name}}</b><br><span class="rank-label">기대: ${{item.rank}}위</span></div>`;
                 }});
                 return;
             }}
@@ -270,6 +267,7 @@ else:
             sortedIdx.forEach((idx, i) => currentRanks[idx] = i + 1);
 
             let mismatch = false;
+            // 1등부터 좌측에서 우측으로 정렬하여 표시
             sortedIdx.forEach((idx, i) => {{
                 const match = (i+1) === initialRanks[idx]; if(!match) mismatch = true;
                 grid.innerHTML += `<div class="board-item" style="border-color:${{match?'#dee2e6':'#fa5252'}}">
@@ -283,7 +281,8 @@ else:
         function calculateWeights() {{
             const n = items.length; let tempMatrix = matrix.map(row => [...row]);
             const val = parseInt(document.getElementById('slider').value);
-            const p = pairs[pairIdx]; const w = val === 0 ? 1 : (val < 0 ? Math.abs(val)+1 : 1/(val+1));
+            const p = pairs[pairIdx]; 
+            const w = val === 0 ? 1 : (val < 0 ? Math.abs(val)+1 : 1/(val+1));
             tempMatrix[p.r][p.c] = w; tempMatrix[p.c][p.r] = 1/w;
             for(let i=0; i<n; i++) {{ for(let j=0; j<n; j++) {{ if(tempMatrix[i][j] === 0) tempMatrix[i][j] = 1; }} }}
             let weights = tempMatrix.map(row => Math.pow(row.reduce((a, b) => a * b, 1), 1/n));
@@ -304,18 +303,9 @@ else:
         function closeModal(action) {{
             document.getElementById('modal').style.display = 'none';
             if(action === 'updaterank') {{
-                // [의사 반영] 현재 가중치 기준으로 순위 갱신 및 남은 질문 재정렬
                 let weights = calculateWeights();
                 let sortedIdx = weights.map((w, i) => i).sort((a, b) => weights[b] - weights[a]);
-                let tempIdxMap = [];
-                sortedIdx.forEach((idx, i) => {{
-                    initialRanks[idx] = i + 1;
-                    tempIdxMap.push({{ name: items[idx], rank: i + 1, originIdx: idx }});
-                }});
-                // 현재 질문 이후의 질문들만 재정렬 (이미 답한 건 유지)
-                let answered = pairs.slice(0, pairIdx + 1);
-                // 모든 가능한 쌍 생성 후 answered에 없는 것만 추출하여 정렬하려 했으나, 
-                // 사용자 경험을 위해 힌트 텍스트만 업데이트하고 다음으로 진행
+                sortedIdx.forEach((idx, i) => {{ initialRanks[idx] = i + 1; }});
                 saveAndNext();
             }} else if(action === 'back') {{ goBack(); }}
             else {{ document.getElementById('slider').value = 0; updateUI(); }}
@@ -360,7 +350,7 @@ else:
                     secret_key = survey_data.get("secret_key", "public")
                     if not os.path.exists("survey_data"): os.makedirs("survey_data")
                     file_path = f"survey_data/{{secret_key}}_{{goal_clean}}.csv"
-                    save_data = { "Time": datetime.now().strftime("%Y-%m-%d %H:%M"), "Respondent": respondent, "Raw_Data": code }
+                    save_data = {{ "Time": datetime.now().strftime("%Y-%m-%d %H:%M"), "Respondent": respondent, "Raw_Data": code }}
                     df = pd.DataFrame([save_data]); try: old_df = pd.read_csv(file_path); except: old_df = pd.DataFrame()
                     pd.concat([old_df, df], ignore_index=True).to_csv(file_path, index=False)
                     st.success("✅ 제출되었습니다!"); st.balloons()
