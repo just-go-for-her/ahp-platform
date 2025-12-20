@@ -42,14 +42,14 @@ if not is_respondent:
         st.warning("⚠️ [1번 페이지]에서 구조를 먼저 확정하세요."); st.stop()
     project_key = st.text_input("프로젝트 비밀번호(Key) 설정", type="password")
     if st.button("🔗 공유 링크 생성하기", type="primary", use_container_width=True):
-        if not project_key: st.error("비밀번호 설정이 필요합니다.")
+        if not project_key: st.error("비밀번호를 설정해주세요.")
         else:
             full_structure = {**survey_data, "secret_key": project_key}
             survey_id = uuid.uuid4().hex[:8]
             with open(os.path.join(CONFIG_DIR, f"{survey_id}.json"), "w", encoding="utf-8") as f:
                 json.dump(full_structure, f, ensure_ascii=False, indent=2)
             st.code(f"{FULL_URL}?id={survey_id}")
-            st.success("링크 생성 완료!")
+            st.success("공유 링크가 생성되었습니다.")
 
 else:
     st.title(f"📝 {survey_data['goal']}")
@@ -69,7 +69,7 @@ else:
     <meta charset="UTF-8">
     <style>
         body {{ font-family: "Pretendard", sans-serif; padding: 10px; background: #f8f9fa; }}
-        .container {{ max-width: 700px; margin: 0 auto; background: white; padding: 25 : 25px; border-radius: 15px; box-shadow: 0 4px 15px rgba(0,0,0,0.05); }}
+        .container {{ max-width: 700px; margin: 0 auto; background: white; padding: 25px; border-radius: 15px; box-shadow: 0 4px 15px rgba(0,0,0,0.05); }}
         .step {{ display: none; }} .active {{ display: block; }}
         
         .ranking-board {{ background: #f1f3f5; padding: 18px; border-radius: 12px; margin-bottom: 25px; border: 1px solid #dee2e6; }}
@@ -77,10 +77,10 @@ else:
         .status-pill {{ padding: 4px 12px; border-radius: 20px; font-size: 0.82em; font-weight: bold; }}
         
         .board-grid {{ display: flex; gap: 10px; overflow-x: auto; padding-bottom: 10px; }}
-        .board-item {{ min-width: 150px; background: white; padding: 15px; border-radius: 12px; text-align: center; border: 1px solid #dee2e6; flex: 1; }}
+        .board-item {{ min-width: 160px; background: white; padding: 15px; border-radius: 12px; text-align: center; border: 1px solid #dee2e6; flex: 1; display: flex; flex-direction: column; gap: 10px; }}
         
-        .item-name {{ font-weight: 800; color: #343a40; margin-bottom: 8px; display: block; border-bottom: 1px solid #f1f3f5; padding-bottom: 6px; }}
-        .rank-row {{ display: flex; justify-content: space-between; align-items: center; font-size: 0.85em; color: #666; margin: 4px 0; }}
+        .item-name {{ font-weight: 800; color: #343a40; border-bottom: 1px solid #f1f3f5; padding-bottom: 8px; }}
+        .rank-row {{ display: flex; justify-content: space-between; align-items: center; font-size: 0.88em; color: #666; padding: 0 4px; }}
         .rank-val {{ font-weight: bold; color: #444; }}
         
         .error-color {{ color: #fa5252 !important; text-decoration: underline; font-weight: 800; }}
@@ -112,7 +112,7 @@ else:
         </div>
 
         <div id="step-ranking" class="step">
-            <p><b>1단계:</b> 각 항목의 중요도 순위를 정해주세요.</p>
+            <p><b>1단계:</b> 각 항목의 중요도 순위를 먼저 정해주세요.</p>
             <div id="ranking-list" style="margin-bottom:20px;"></div>
             <button class="btn" onclick="startCompare()">설문 시작하기</button>
         </div>
@@ -149,7 +149,7 @@ else:
         <div class="modal-box">
             <h3 style="color:#fa5252; margin-top:0;">⚠️ 순위 역전 감지</h3>
             <p style="font-size:0.95em; color:#495057; line-height:1.7; margin-bottom:25px;">
-                현재 응답을 적용하면 기존에 설정한 순위가 뒤바뀌게 됩니다.<br><b>변경된 의사를 인정</b>하시겠습니까, 아니면 <b>응답을 수정</b>하시겠습니까?
+                현재 응답을 적용하면 기존에 설정한 순서가 완전히 뒤바뀌게 됩니다.<br><b>변경된 의사를 인정</b>하시겠습니까, 아니면 <b>응답을 수정</b>하시겠습니까?
             </p>
             <div style="display:grid; gap:12px;">
                 <button class="btn" onclick="closeModal('resurvey')" style="background:#228be6;">👈 현재 답변 수정 (기존 순위 유지)</button>
@@ -219,9 +219,8 @@ else:
             let val = parseInt(slider.value);
             const p = pairs[pairIdx];
 
-            // [조작 실수 차단] 왼쪽이 상위 순위인데 오른쪽 선택 시 즉시 리셋
             if (val > 0) {{
-                alert(`안내: [${{p.a}}] 항목이 상위 순위입니다.\\n논리적 일관성을 위해 왼쪽(A 우세) 방향으로만 응답해 주세요.`);
+                alert(`⚠️ 조작 안내: 현재 [${{p.a}}] 항목이 논리적으로 상위 순위입니다.\\n설정하신 순서에 맞춰 왼쪽 방향으로 가중치를 선택해 주세요.`);
                 slider.value = 0; val = 0;
             }}
 
@@ -247,15 +246,29 @@ else:
             let fixedOrder = items.map((name, i) => ({{name, org: initialRanks[i], idx: i}}))
                                   .sort((a,b) => a.org - b.org);
 
+            // [사용자 요청] 첫 질문은 무조건 논리 일치로 시작
+            if (pairIdx === 0) {{
+                pill.innerText = "✅ 논리 일치"; pill.style.background = "#ebfbee"; pill.style.color = "#2f9e44";
+                fixedOrder.forEach(item => {{
+                    grid.innerHTML += `<div class="board-item">
+                        <span class="item-name">${{item.name}}</span>
+                        <div class="rank-row"><span>기존 순위:</span><span class="rank-val">${{item.org}}위</span></div>
+                        <div class="rank-row"><span>변동 순위:</span><span class="rank-val match-color">${{item.org}}위</span></div>
+                    </div>`;
+                }});
+                return;
+            }}
+
             let hasFlip = false;
             fixedOrder.forEach(item => {{
                 const cur = currentRanks[item.idx];
                 let isFlipped = false;
                 for(let k=0; k<items.length; k++) {{
+                    // 엄격한 역전(Flip) 체크: 기존 i<k 인데 현재 i>k 인 경우만
                     if(initialRanks[item.idx] < initialRanks[k] && currentRanks[item.idx] > currentRanks[k]) {{
                         isFlipped = true; break;
                     }}
-                }}
+                }
                 if(isFlipped) hasFlip = true;
                 
                 grid.innerHTML += `<div class="board-item" style="border-color:${{isFlipped?'#fa5252':'#dee2e6'}}">
@@ -265,7 +278,7 @@ else:
                 </div>`;
             }});
 
-            if(hasFlip && pairIdx > 0) {{
+            if(hasFlip) {{
                 pill.innerText = "⚠️ 순위 역전 발생"; pill.style.background = "#fff5f5"; pill.style.color = "#fa5252";
             }} else {{
                 pill.innerText = "✅ 논리 일치"; pill.style.background = "#ebfbee"; pill.style.color = "#2f9e44";
@@ -347,10 +360,9 @@ else:
     components.html(html_code, height=850, scrolling=True)
 
     st.divider()
-    # 딕셔너리 문법 교정 완료: {{ }} -> { }
-    with st.form("final_save_form"):
+    with st.form("final_data_submission"):
         respondent = st.text_input("응답자 성함")
-        code = st.text_area("결과 코드를 복사해서 붙여넣으세요")
+        code = st.text_area("결과 코드를 붙여넣으세요")
         if st.form_submit_button("최종 제출", type="primary"):
             if respondent and code:
                 try:
@@ -359,7 +371,6 @@ else:
                     secret_key = survey_data.get("secret_key", "public")
                     if not os.path.exists("survey_data"): os.makedirs("survey_data")
                     file_path = f"survey_data/{secret_key}_{goal_clean}.csv"
-                    # 핵심 수정: 파이썬 딕셔너리 기호
                     save_dict = {"Time": datetime.now().strftime("%Y-%m-%d %H:%M"), "Respondent": respondent, "Raw_Data": code}
                     df = pd.DataFrame([save_dict])
                     try: old_df = pd.read_csv(file_path)
