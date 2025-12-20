@@ -234,7 +234,6 @@ else:
             document.getElementById('hint-b').innerText = initialRanks[p.c];
             document.getElementById('slider').value = 0;
             
-            // [버튼 배치]
             const btnArea = document.getElementById('btn-area');
             if (pairIdx === 0) {{
                 // 첫 질문: [순위 재설정(회색)] [다음]
@@ -325,7 +324,6 @@ else:
                 let borderStyle = isFlipped ? "2px solid #fa5252 !important" : "1px solid #dee2e6";
                 let bgStyle = isFlipped ? "#fff5f5 !important" : "white";
                 let textColorClass = isFlipped ? "error-text" : "match-text";
-                // 그림자 추가
                 let shadow = isFlipped ? "box-shadow: 0 4px 12px rgba(250, 82, 82, 0.15);" : "";
 
                 grid.innerHTML += `
