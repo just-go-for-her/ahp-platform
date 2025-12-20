@@ -86,7 +86,7 @@ with row1_1:
     st.success("**🧠 AI Powered Logic**\n\n단순 입력이 아닙니다. AI가 연구자의 논리를 검토하고 더 나은 구조를 컨설팅해 줍니다.")
 
 with row1_2:
-    st.warning("**⚖️ Real-time Consistency**\n\n응답자가 비논리적으로 응답하면 즉시 경고하여, **'버려지는 데이터'**를 최소화합니다.")
+    st.warning("**⚖️ Real-time Consistency**\n\n응답자가 비논리적으로 응답하면 즉시 경고하여, '버려지는 데이터'를 최소화합니다.")
 
 with row1_3:
     st.error("**🔐 Private Project**\n\n프로젝트별 비밀번호(Key) 시스템을 도입하여, 여러 연구자가 동시에 안전하게 데이터를 관리합니다.")
