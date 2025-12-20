@@ -79,7 +79,7 @@ else:
         .ranking-board {{ background: #e7f5ff; padding: 15px; border-radius: 12px; margin-bottom: 20px; border: 1px solid #a5d8ff; }}
         .board-title {{ font-weight: bold; color: #1971c2; font-size: 0.95em; margin-bottom: 12px; display: flex; justify-content: space-between; }}
         .board-grid {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); gap: 10px; }}
-        .board-item {{ background: white; padding: 12px; border-radius: 8px; text-align: center; font-size: 0.85em; border: 1px solid #dbeafe; transition: all 0.2s; }}
+        .board-item {{ background: white; padding: 12px; border-radius: 8px; text-align: center; font-size: 0.85em; border: 1px solid #dbeafe; }}
         .rank-badge {{ display: inline-block; padding: 2px 8px; border-radius: 10px; font-weight: bold; margin-bottom: 4px; }}
         .card {{ background: #fff; padding: 25px; border-radius: 12px; text-align: center; margin-bottom: 20px; border: 1px solid #e9ecef; }}
         input[type=range] {{ width: 100%; margin: 25px 0; cursor: pointer; }}
@@ -94,14 +94,14 @@ else:
 
         <div id="live-board" class="ranking-board" style="display:none;">
             <div class="board-title">
-                <span>📊 실시간 가중치 및 순위 변동</span>
+                <span>📊 실시간 순위 변동 모니터링</span>
                 <span id="logic-status">✅ 순위 일치</span>
             </div>
             <div id="board-grid" class="board-grid"></div>
         </div>
 
         <div id="step-ranking" class="step">
-            <p><b>1단계:</b> 각 항목의 <b>예상 순위</b>를 정해주세요.</p>
+            <p><b>1단계:</b> 각 항목의 <b>기대 순위</b>를 정해주세요.</p>
             <div id="ranking-list" style="margin-bottom:20px;"></div>
             <button class="btn" onclick="startCompare()">비교 시작하기</button>
         </div>
@@ -132,11 +132,11 @@ else:
         <div class="modal-box">
             <h3 style="color:#e03131; margin-top:0;">⚠️ 순위 역전 감지</h3>
             <p style="font-size:0.95em; color:#495057; line-height:1.6; text-align:left;">
-                현재 응답은 처음 설정한 순위와 다릅니다. 이대로 순위를 변경하시겠습니까?
+                현재 응답을 적용하면 처음 설정한 기대 순위와 실제 가중치 순위가 달라집니다.
             </p>
             <div style="display:grid; gap:10px; margin-top:20px;">
-                <button class="btn" onclick="closeModal('resurvey')" style="background:#228be6;">📍 다시 설문 (순위 유지)</button>
-                <button class="btn" onclick="closeModal('updaterank')" style="background:#868e96;">🔄 순위 변경 인정 (진행)</button>
+                <button class="btn" onclick="closeModal('resurvey')" style="background:#228be6;">📍 다시 설문 (기존 순위 유지)</button>
+                <button class="btn" onclick="closeModal('updaterank')" style="background:#868e96;">🔄 순위 변경 (현재 응답 인정)</button>
             </div>
         </div>
     </div>
@@ -195,6 +195,7 @@ else:
             updateBoard();
         }}
 
+        // [핵심 수정] 가중치 계산 시 응답하지 않은 부분에 '기대 순위'를 강제로 섞지 않음
         function calculateWeights() {{
             const n = items.length;
             let tempMatrix = matrix.map(row => [...row]);
@@ -203,14 +204,13 @@ else:
             const w = val === 0 ? 1 : (val < 0 ? Math.abs(val)+1 : 1/(val+1));
             tempMatrix[p.r][p.c] = w; tempMatrix[p.c][p.r] = 1/w;
 
-            // 아직 답변 안한 부분 보정 (기대 순위 기반 가중치 부여)
+            // 아직 답변하지 않은 칸은 모두 1(동등)로 처리하여 현재 입력값의 영향만 측정
             for(let i=0; i<n; i++) {{
                 for(let j=0; j<n; j++) {{
-                    if(tempMatrix[i][j] === 0) {{
-                        tempMatrix[i][j] = initialRanks[i] < initialRanks[j] ? 1.05 : (initialRanks[i] > initialRanks[j] ? 0.95 : 1);
-                    }}
+                    if(tempMatrix[i][j] === 0) tempMatrix[i][j] = 1;
                 }}
             }}
+            
             let weights = tempMatrix.map(row => Math.pow(row.reduce((a, b) => a * b, 1), 1/n));
             let sum = weights.reduce((a, b) => a + b, 0);
             return weights.map(v => v / sum);
@@ -225,25 +225,42 @@ else:
 
             let mismatch = false;
             items.forEach((item, i) => {{
+                // 현재 답변이 연관된 항목만 색상을 강조하여 오판단 방지 알림
+                const p = pairs[pairIdx];
+                const isCurrent = (i === p.r || i === p.c);
                 const isMatch = currentRanks[i] === initialRanks[i];
-                if(!isMatch) mismatch = true;
-                grid.innerHTML += `<div class="board-item" style="border-color: ${{isMatch?'#a5d8ff':'#ffc9c9'}};">
-                    <div class="rank-badge" style="background:${{isMatch?'#e7f5ff':'#fff5f5'}}; color:${{isMatch?'#1971c2':'#e03131'}}">
-                        ${{currentRanks[i]}}위 ${{isMatch?'':'⚠️'}}
+                
+                // [수정] 현재 질문 대상이 아닌 항목은 순위가 바뀌어도 경고색(빨강)을 띄우지 않음
+                const showRed = isCurrent && !isMatch;
+                if(showRed) mismatch = true;
+
+                grid.innerHTML += `<div class="board-item" style="border-color: ${{showRed?'#ffc9c9':'#a5d8ff'}}; opacity: ${{isCurrent?1:0.6}};">
+                    <div class="rank-badge" style="background:${{showRed?'#fff5f5':'#e7f5ff'}}; color:${{showRed?'#e03131':'#1971c2'}}">
+                        ${{currentRanks[i]}}위 ${{showRed?'⚠️':''}}
                     </div>
                     <div style="font-weight:bold;">${{item}}</div>
                     <div style="font-size:0.7em; color:#868e96; margin-top:4px;">기대: ${{initialRanks[i]}}위</div>
                 </div>`;
             }});
-            document.getElementById('logic-status').innerText = mismatch ? "⚠️ 순위 역전 상태" : "✅ 순위 일치 상태";
+            document.getElementById('logic-status').innerText = mismatch ? "⚠️ 현재 선택이 기대 순위와 다름" : "✅ 기대 순위 유지 중";
             document.getElementById('logic-status').style.color = mismatch ? "#e03131" : "#1971c2";
         }}
 
         function checkLogic() {{
             const val = parseInt(document.getElementById('slider').value);
             const p = pairs[pairIdx];
-            // 방향성 모순 체크 (단, 첫 질문은 기준점이므로 통과)
-            if (pairIdx > 0 && ((initialRanks[p.r] < initialRanks[p.c] && val > 0) || (initialRanks[p.r] > initialRanks[p.c] && val < 0))) {{
+            
+            // [수정] 첫 번째 질문은 기준점이므로 어떠한 선택을 해도 역전 경고를 띄우지 않음
+            if (pairIdx === 0) {{
+                saveAndNext();
+                return;
+            }}
+
+            // 두 번째 질문부터는 현재 선택이 기대 순위(A>B)와 정반대 방향이면 경고
+            const isReverse = (initialRanks[p.r] < initialRanks[p.c] && val > 0) || 
+                              (initialRanks[p.r] > initialRanks[p.c] && val < 0);
+            
+            if (isReverse) {{
                 document.getElementById('modal').style.display = 'flex';
                 return;
             }}
@@ -253,6 +270,7 @@ else:
         function closeModal(action) {{
             document.getElementById('modal').style.display = 'none';
             if(action === 'updaterank') {{
+                // 현재 응답에 맞춰 기대 순위 자체를 재설정 (응답자의 변심 인정)
                 let weights = calculateWeights();
                 let sortedIdx = weights.map((w, i) => i).sort((a, b) => weights[b] - weights[a]);
                 sortedIdx.forEach((idx, i) => initialRanks[idx] = i + 1);
@@ -296,7 +314,7 @@ else:
         code = st.text_area("결과 코드 붙여넣기")
         if st.form_submit_button("최종 제출하기", type="primary", use_container_width=True):
             if not respondent or not code:
-                st.warning("이름과 코드를 입력해주세요.")
+                st.warning("이름과 코드를 모두 입력해주세요.")
             else:
                 try:
                     json.loads(code)
