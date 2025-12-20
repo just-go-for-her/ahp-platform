@@ -85,6 +85,7 @@ else:
         .btn {{ width: 100%; padding: 15px; background: #228be6; color: white; border: none; border-radius: 8px; font-size: 1.05em; font-weight: bold; cursor: pointer; }}
         .modal {{ display: none; position: fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.7); justify-content:center; align-items:center; z-index:9999; }}
         .modal-box {{ background:white; padding:30px; border-radius:15px; width:85%; max-width:450px; text-align:center; }}
+        .highlight {{ color: #228be6; font-weight: bold; }}
     </style>
     </head>
     <body>
@@ -129,13 +130,18 @@ else:
 
     <div id="modal" class="modal">
         <div class="modal-box">
-            <h3 style="color:#e03131; margin-top:0;">⚠️ 순위 역전 감지</h3>
-            <p style="font-size:0.95em; color:#495057; line-height:1.6; text-align:left;">
-                현재 응답은 처음 설정한 기대 순위와 상충합니다.
+            <h3 style="color:#e03131; margin-top:0;">⚠️ 논리 불일치 알림</h3>
+            <p style="font-size:0.95em; color:#495057; line-height:1.6; text-align:left;" id="modal-desc">
+                현재 응답을 적용하면 일관성이 낮아지거나 설정한 순위와 상충합니다.
             </p>
-            <div style="display:grid; gap:10px; margin-top:20px;">
-                <button class="btn" onclick="closeModal('resurvey')" style="background:#228be6;">📍 다시 설문 (순위 유지)</button>
-                <button class="btn" onclick="closeModal('updaterank')" style="background:#868e96;">🔄 순위 변경 (현재 응답 인정)</button>
+            <div style="background:#f1f3f5; padding:15px; border-radius:8px; margin:15px 0; text-align:left;">
+                <div style="margin-bottom:8px;">🧠 <b>AI 권장 가중치:</b> <span id="rec-val" class="highlight"></span></div>
+                <div style="font-size:0.85em; color:#868e96;">* 권장값을 참고하여 다시 선택하면 데이터 신뢰도(CR)가 높아집니다.</div>
+            </div>
+            <div style="display:grid; gap:10px;">
+                <button class="btn" onclick="closeModal('resurvey')" style="background:#228be6;">📍 다시 설문 (권장)</button>
+                <button class="btn" onclick="closeModal('updaterank')" style="background:#868e96;" id="update-rank-btn">🔄 현재 응답대로 순위 변경</button>
+                <button class="btn" onclick="closeModal('keep')" style="background:#adb5bd; display:none;" id="keep-btn">내 선택 유지</button>
             </div>
         </div>
     </div>
@@ -201,7 +207,6 @@ else:
             const grid = document.getElementById('board-grid'); grid.innerHTML = "";
             const status = document.getElementById('logic-status');
             
-            // 첫 번째 질문일 때는 보드에 순위를 표시하지 않음 (기준점 설정 중)
             if (pairIdx === 0 && !finalCheck) {{
                 status.innerText = "📍 기준점 설정 중..."; status.style.color = "#495057";
                 items.forEach((item, i) => {{
@@ -240,8 +245,6 @@ else:
             const p = pairs[pairIdx];
             const w = val === 0 ? 1 : (val < 0 ? Math.abs(val)+1 : 1/(val+1));
             tempMatrix[p.r][p.c] = w; tempMatrix[p.c][p.r] = 1/w;
-            
-            // 아직 답변 안 한 부분은 1로 채워 현재 입력값의 영향만 측정
             for(let i=0; i<n; i++) {{
                 for(let j=0; j<n; j++) {{
                     if(tempMatrix[i][j] === 0) tempMatrix[i][j] = 1;
@@ -257,24 +260,69 @@ else:
             const p = pairs[pairIdx];
             const rankA = initialRanks[p.r]; const rankB = initialRanks[p.c];
             
-            if (pairIdx === 0) {{
-                saveAndNext();
+            // 1. 첫 질문은 무조건 통과
+            if (pairIdx === 0) {{ saveAndNext(); return; }}
+
+            // 2. 순위 역전 체크 (단순 방향성)
+            const isReverse = (rankA < rankB && sliderVal > 0) || (rankA > rankB && sliderVal < 0);
+            
+            // 3. 수치적 일관성 체크 (A->B * B->C 로직)
+            let geoMean = 1;
+            let currentWeight = sliderVal === 0 ? 1 : (sliderVal < 0 ? Math.abs(sliderVal)+1 : 1/(sliderVal+1));
+            const n = items.length;
+            let estimates = [];
+            for(let k=0; k<n; k++) {{
+                if(k === p.r || k === p.c) continue;
+                if(matrix[p.r][k] !== 0 && matrix[k][p.c] !== 0) estimates.push(matrix[p.r][k] * matrix[k][p.c]);
+            }}
+            
+            if(estimates.length > 0) {{
+                geoMean = Math.exp(estimates.reduce((acc, v) => acc + Math.log(v), 0) / estimates.length);
+                if (rankA < rankB && geoMean < 1) geoMean = 1;
+                if (rankA > rankB && geoMean > 1) geoMean = 1;
+                
+                const ratio = currentWeight > geoMean ? currentWeight / geoMean : geoMean / currentWeight;
+                
+                if (isReverse || ratio >= 2.0) {{
+                    showModal(geoMean, isReverse);
+                    return;
+                }}
+            }} else if (isReverse) {{
+                showModal(1, true); // 첫 관계 형성 시의 역전
                 return;
             }}
 
-            if ((rankA < rankB && sliderVal > 0) || (rankA > rankB && sliderVal < 0)) {{
-                document.getElementById('modal').style.display = 'flex';
-                return;
-            }}
             saveAndNext();
+        }}
+
+        function showModal(recW, isReverse) {{
+            const p = pairs[pairIdx];
+            const fmt = (w) => {{
+                if (w >= 1.1) return `"${{p.a}}" ${{Math.min(5, Math.round(w))}}배 우세`;
+                if (w <= 0.9) return `"${{p.b}}" ${{Math.min(5, Math.round(1/w))}}배 우세`;
+                return "동등함(1:1)";
+            }};
+            
+            document.getElementById('rec-val').innerText = fmt(recW);
+            document.getElementById('modal-desc').innerText = isReverse ? 
+                "현재 선택이 처음에 설정한 기대 순위와 반대 방향입니다." : 
+                "이전 답변들을 고려했을 때, 현재 선택은 수학적 일관성이 낮습니다.";
+            
+            // 순위 역전일 때는 '내 선택 유지' 대신 '순위 변경' 옵션 노출
+            document.getElementById('update-rank-btn').style.display = isReverse ? 'block' : 'none';
+            document.getElementById('keep-btn').style.display = isReverse ? 'none' : 'block';
+            
+            document.getElementById('modal').style.display = 'flex';
         }}
 
         function closeModal(action) {{
             document.getElementById('modal').style.display = 'none';
-            if(action === 'updaterank') {{
-                let weights = calculateWeights();
-                let sortedIdx = weights.map((w, i) => i).sort((a, b) => weights[b] - weights[a]);
-                sortedIdx.forEach((idx, i) => initialRanks[idx] = i + 1);
+            if(action === 'updaterank' || action === 'keep') {{
+                if(action === 'updaterank') {{
+                    let weights = calculateWeights();
+                    let sortedIdx = weights.map((w, i) => i).sort((a, b) => weights[b] - weights[a]);
+                    sortedIdx.forEach((idx, i) => initialRanks[idx] = i + 1);
+                }}
                 saveAndNext();
             }} else {{
                 document.getElementById('slider').value = 0; updateUI();
@@ -315,7 +363,7 @@ else:
         code = st.text_area("결과 코드 붙여넣기")
         if st.form_submit_button("최종 제출하기", type="primary", use_container_width=True):
             if not respondent or not code:
-                st.warning("성함과 코드를 모두 입력해주세요.")
+                st.warning("이름과 코드를 입력해주세요.")
             else:
                 try:
                     json.loads(code)
