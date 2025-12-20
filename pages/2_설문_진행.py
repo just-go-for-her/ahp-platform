@@ -144,7 +144,7 @@ else:
                 <div style="font-size:0.95em; color:#adb5bd; margin-bottom:10px;">
                     (기존 순위: <span id="hint-a"></span>위) vs (기존 순위: <span id="hint-b"></span>위)
                 </div>
-                <input type="range" id="slider" min="-4" max="4" value="0" step="1" oninput="updateUI(true)">
+                <input type="range" id="slider" min="-4" max="4" value="0" step="1" oninput="updateUI()">
                 <div id="val-display" style="font-weight:bold; color:#343a40; font-size:1.4em;">동등함</div>
             </div>
             
@@ -178,6 +178,7 @@ else:
         const tasks = {js_tasks};
         let currentTaskIdx = 0, items = [], pairs = [], matrix = [], pairIdx = 0, initialRanks = [];
         let allAnswers = {{}};
+        let currentPairSwapped = false; // [핵심] 화면 반전 여부 저장용
 
         function loadTask() {{
             if (currentTaskIdx >= tasks.length) {{ finishAll(); return; }}
@@ -203,11 +204,8 @@ else:
             }}
             if(new Set(initialRanks).size !== initialRanks.length) {{ alert("중복 순위가 있습니다."); return; }}
             
-            // 순위대로 정렬 (1위, 2위, 3위...)
             tempIdxMap.sort((a, b) => a.rank - b.rank);
-            
             pairs = [];
-            // 정렬된 순서대로 쌍 생성 (항상 상위 순위가 왼쪽(A)에 오도록 됨)
             for(let i=0; i<tempIdxMap.length; i++) {{
                 for(let j=i+1; j<tempIdxMap.length; j++) {{
                     pairs.push({{ 
@@ -216,21 +214,35 @@ else:
                     }});
                 }}
             }}
-            
             const n = items.length; matrix = Array.from({{length: n}}, () => Array(n).fill(0));
             for(let i=0; i<n; i++) matrix[i][i] = 1;
-            
-            pairIdx = 0; 
-            showStep('step-compare'); 
-            renderPair();
+            pairIdx = 0; showStep('step-compare'); renderPair();
         }}
 
         function renderPair() {{
             const p = pairs[pairIdx];
-            document.getElementById('item-a').innerText = p.a; 
-            document.getElementById('item-b').innerText = p.b;
-            document.getElementById('hint-a').innerText = initialRanks[p.r];
-            document.getElementById('hint-b').innerText = initialRanks[p.c];
+            
+            // [NEW] 현재 가중치 계산하여 순서 결정 (Winner Stays Left)
+            let weights = calculateWeights();
+            const EPSILON = 0.00001;
+            
+            // A(p.r)와 B(p.c)의 현재 가중치 비교
+            // weights[p.c] > weights[p.r] 이면 B(오른쪽)가 더 셈 -> 화면 뒤집기
+            // 단, 첫 질문(pairIdx=0)은 데이터가 없으므로 무조건 초기 순서 유지
+            currentPairSwapped = false;
+            if (pairIdx > 0 && weights[p.c] > weights[p.r] + EPSILON) {{
+                currentPairSwapped = true;
+            }}
+
+            let leftName = currentPairSwapped ? p.b : p.a;
+            let rightName = currentPairSwapped ? p.a : p.b;
+            let leftRankHint = currentPairSwapped ? initialRanks[p.c] : initialRanks[p.r];
+            let rightRankHint = currentPairSwapped ? initialRanks[p.r] : initialRanks[p.c];
+
+            document.getElementById('item-a').innerText = leftName; 
+            document.getElementById('item-b').innerText = rightName;
+            document.getElementById('hint-a').innerText = leftRankHint;
+            document.getElementById('hint-b').innerText = rightRankHint;
             document.getElementById('slider').value = 0;
             
             const btnArea = document.getElementById('btn-area');
@@ -247,26 +259,30 @@ else:
             }}
 
             document.getElementById('live-board').style.display = 'block';
-            // Render board but don't check for alerts yet
-            updateUI(false); 
+            updateUI();
         }}
 
-        function updateUI(checkAlert = false) {{
+        function updateUI() {{
             const slider = document.getElementById('slider');
             let val = parseInt(slider.value);
             const p = pairs[pairIdx];
 
-            // [핵심] 슬라이더 이동 방향 제한 (Alert & Reset)
-            // p.r(A)이 p.c(B)보다 순위가 높음(숫자가 작음) -> val은 음수(왼쪽)여야 함
-            if (checkAlert) {{
-                if (initialRanks[p.r] < initialRanks[p.c] && val > 0) {{
-                    alert(`🚫 [논리 보호]\\n\\n이미 '${{p.a}}' 항목을 상위 순위로 설정하셨습니다.\\n따라서 점수도 '${{p.a}}' 쪽(왼쪽)으로만 줄 수 있습니다.`);
-                    slider.value = 0; val = 0;
-                }} 
-                else if (initialRanks[p.r] > initialRanks[p.c] && val < 0) {{
-                    alert(`🚫 [논리 보호]\\n\\n이미 '${{p.b}}' 항목을 상위 순위로 설정하셨습니다.\\n따라서 점수도 '${{p.b}}' 쪽(오른쪽)으로만 줄 수 있습니다.`);
-                    slider.value = 0; val = 0;
-                }}
+            // [NEW] 슬라이더 이동 제한 (오른쪽 차단)
+            // 화면상 왼쪽이 "현재 더 중요한 항목"이므로, 슬라이더는 무조건 왼쪽(음수)으로만 가야 함.
+            // 단, 두 항목의 가중치가 거의 비슷해서 순위가 애매할 때는 허용할 수도 있으나,
+            // 사용자 요청에 따라 "순서가 뒤바뀐 경우" 확실히 왼쪽만 허용.
+            
+            // 왼쪽으로만 이동 가능 (0 또는 음수). 양수(오른쪽)로 가면 경고.
+            // (동등함을 의미하는 0은 허용)
+            // 첫 질문은 아직 방향성이 없으므로 자유 이동 (단, 초기 설정상 왼쪽이 상위)
+            
+            let isViolation = false;
+            let leftName = document.getElementById('item-a').innerText;
+            let rightName = document.getElementById('item-b').innerText;
+
+            if (val > 0) {{
+                alert(`🚫 [입력 제한]\\n\\n현재 데이터 상 '${{leftName}}' 항목이 더 중요하다고 판단됩니다.\\n따라서 점수도 '${{leftName}}' 쪽(왼쪽)으로만 줄 수 있습니다.`);
+                slider.value = 0; val = 0;
             }}
 
             const disp = document.getElementById('val-display');
@@ -277,8 +293,8 @@ else:
             else slider.style.background = '#dee2e6';
 
             if(val == 0) disp.innerText = "동등함 (1:1)";
-            else if(val < 0) disp.innerText = `${{p.a}} ${{Math.abs(val)+1}}배 중요`;
-            else disp.innerText = `${{p.b}} ${{Math.abs(val)+1}}배 중요`; 
+            else if(val < 0) disp.innerText = `${{leftName}} ${{Math.abs(val)+1}}배 중요`;
+            else disp.innerText = `${{rightName}} ${{Math.abs(val)+1}}배 중요`; 
             
             updateBoard();
         }}
@@ -291,7 +307,6 @@ else:
             let weights = calculateWeights();
             const EPSILON = 0.00001;
 
-            // 순위 계산 (동점 처리: 기존 순위 우선 -> 절대 동순위 없음)
             let indexedWeights = weights.map((w, i) => ({{w, i}}));
             indexedWeights.sort((a,b) => {{
                 if (Math.abs(b.w - a.w) > EPSILON) return b.w - a.w;
@@ -328,16 +343,12 @@ else:
 
             fixedOrder.forEach(item => {{
                 let isFlipped = flippedIndices.has(item.idx);
-                
-                // [핵심] 첫 질문(pairIdx==0)일 땐 '현재 순위' = '기존 순위'로 고정 (울렁임 방지)
                 let curRank = (pairIdx === 0) ? item.org : rankMap[item.idx];
-                
                 let borderStyle = isFlipped ? "2px solid #fa5252 !important" : "1px solid #dee2e6";
                 let bgStyle = isFlipped ? "#fff5f5 !important" : "white";
                 let textColorClass = isFlipped ? "error-text" : "match-text";
                 let shadow = isFlipped ? "box-shadow: 0 4px 12px rgba(250, 82, 82, 0.15);" : "";
 
-                // [핵심] 첫 질문에서는 '현재 순위' 행을 아예 안 보여줌 (깔끔)
                 let currentRankHtml = "";
                 if (pairIdx > 0) {{
                     currentRankHtml = `<div class="rank-row"><span>현재:</span><span class="rank-val ${{textColorClass}}">${{curRank}}위</span></div>`;
@@ -358,6 +369,12 @@ else:
             let p = pairs[pairIdx];
             let val = tempVal !== null ? tempVal : parseInt(document.getElementById('slider').value);
             
+            // [NEW] 화면이 반전(Swapped)되어 있다면, 입력값의 부호를 반대로 해석해야 함
+            // 화면상 왼쪽(음수) 선택 -> 실제로는 오른쪽 항목(p.b)이 우세 -> 양수로 저장
+            if (currentPairSwapped) {{
+                val = val * -1;
+            }}
+
             let w_abs = Math.abs(val) + 1;
             let w_final = (val <= 0) ? w_abs : (1 / w_abs);
 
@@ -372,6 +389,8 @@ else:
 
         function checkLogic() {{
             if (pairIdx === 0) {{ saveAndNext(); return; }}
+            
+            // 슬라이더 값을 가져오되, calculateWeights 내부에서 swapped 여부에 따라 부호 처리됨
             const sliderVal = parseInt(document.getElementById('slider').value);
             
             let weights = calculateWeights(sliderVal);
@@ -387,6 +406,7 @@ else:
             for(let i=0; i<items.length; i++) {{
                 for(let j=0; j<items.length; j++) {{
                     if(i === j) continue;
+                    // 순위 역전 체크 (원래 i<j 였는데, 지금 i>j 됨)
                     if(initialRanks[i] < initialRanks[j] && rankMap[i] > rankMap[j]) {{
                         flippedPairs.push(`${{items[i]}} (기존 ${{initialRanks[i]}}위) ↔ ${{items[j]}} (기존 ${{initialRanks[j]}}위)`);
                     }}
@@ -403,7 +423,6 @@ else:
                 return; 
             }}
 
-            // CR 체크는 데이터 센터(Page 3)로 이관됨 -> 바로 저장
             saveAndNext();
         }}
 
@@ -422,8 +441,7 @@ else:
         }}
 
         function resetTask() {{
-            // 현재 작업의 순위 설정 화면(1단계)으로 돌아감 (새로고침 아님)
-            if(confirm("순위 설정 화면으로 돌아가시겠습니까?\\n(입력한 내용은 초기화됩니다)")) {{ 
+            if(confirm("순위 설정 화면으로 돌아가시겠습니까?\\n(현재 단계의 입력 내용은 초기화됩니다)")) {{ 
                 loadTask(); 
             }}
         }}
@@ -431,13 +449,24 @@ else:
         function goBack() {{ if (pairIdx > 0) {{ pairIdx--; renderPair(); }} }}
 
         function saveAndNext() {{
-            const val = parseInt(document.getElementById('slider').value);
+            const slider = document.getElementById('slider');
+            let val = parseInt(slider.value);
+            
+            // [중요] 저장 시에도 화면 반전 여부에 따라 부호 보정
+            if (currentPairSwapped) {{
+                val = val * -1;
+            }}
+
             let w_abs = Math.abs(val) + 1;
             let w_final = (val <= 0) ? w_abs : (1 / w_abs);
 
             const p = pairs[pairIdx];
             matrix[p.r][p.c] = w_final; matrix[p.c][p.r] = 1/w_final;
+            
+            // 저장할 텍스트도 화면에 보인 대로 저장할지, 원래대로 저장할지?
+            // 분석 통일성을 위해 원래 pair(A vs B) 기준으로 저장하는 것이 안전함.
             allAnswers[`[${{tasks[currentTaskIdx].name}}] ${{p.a}} vs ${{p.b}}`] = w_final.toFixed(2);
+            
             pairIdx++;
             if (pairIdx >= pairs.length) {{ currentTaskIdx++; loadTask(); }}
             else {{ renderPair(); }}
