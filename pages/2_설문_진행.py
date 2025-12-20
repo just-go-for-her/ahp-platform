@@ -72,6 +72,7 @@ else:
         .container {{ max-width: 700px; margin: 0 auto; background: white; padding: 25px; border-radius: 15px; box-shadow: 0 4px 15px rgba(0,0,0,0.05); }}
         .step {{ display: none; }} .active {{ display: block; }}
         
+        /* 랭킹 보드 스타일 */
         .ranking-board {{ background: #f1f3f5; padding: 18px; border-radius: 12px; margin-bottom: 25px; border: 1px solid #dee2e6; }}
         .board-title {{ font-weight: bold; color: #495057; font-size: 0.9em; margin-bottom: 15px; display: flex; justify-content: space-between; align-items: center; }}
         .status-pill {{ padding: 4px 12px; border-radius: 20px; font-size: 0.82em; font-weight: bold; }}
@@ -86,6 +87,7 @@ else:
             transition: all 0.3s ease;
         }}
         
+        /* 붉은 테두리: 자연스러운 스타일 */
         .flipped-card {{
             border: 2px solid #fa5252 !important;
             background-color: #fff5f5 !important;
@@ -103,9 +105,10 @@ else:
         input[type=range] {{ -webkit-appearance: none; width: 100%; height: 12px; background: #dee2e6; border-radius: 6px; outline: none; margin: 35px 0; }}
         input[type=range]::-webkit-slider-thumb {{ -webkit-appearance: none; appearance: none; width: 28px; height: 28px; background: #228be6; border: 4px solid white; border-radius: 50%; cursor: pointer; box-shadow: 0 2px 6px rgba(0,0,0,0.2); position: relative; z-index: 5; }}
 
+        /* 버튼 스타일 */
         .btn {{ width: 100%; padding: 15px; background: #228be6; color: white; border: none; border-radius: 10px; font-size: 1.1em; font-weight: bold; cursor: pointer; }}
         .btn-secondary {{ background: #adb5bd; }}
-        .btn-reset {{ background: #868e96; color: white; }} 
+        .btn-reset {{ background: #868e96; color: white; }} /* 회색 버튼 */
         
         .btn-grid {{ display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-top: 20px; }}
 
@@ -224,20 +227,9 @@ else:
             document.getElementById('item-b').innerText = p.b;
             document.getElementById('hint-a').innerText = initialRanks[p.r];
             document.getElementById('hint-b').innerText = initialRanks[p.c];
+            document.getElementById('slider').value = 0;
             
-            const slider = document.getElementById('slider');
-            
-            // [슬라이더 이동 제한] 반대 방향은 아예 min/max로 차단
-            if (initialRanks[p.r] < initialRanks[p.c]) {{
-                // A(p.r)가 상위 -> 왼쪽(-4~0)만 허용
-                slider.min = -4; slider.max = 0;
-            }} else {{
-                // B(p.c)가 상위 -> 오른쪽(0~4)만 허용 (중복 순위 없으므로 else if 불필요)
-                slider.min = 0; slider.max = 4;
-            }}
-            
-            slider.value = 0;
-            
+            // [버튼 배치]
             const btnArea = document.getElementById('btn-area');
             if (pairIdx === 0) {{
                 btnArea.innerHTML = `
@@ -260,8 +252,20 @@ else:
             let val = parseInt(slider.value);
             const p = pairs[pairIdx];
 
+            // [슬라이더 물리적 차단 및 리셋]
+            // A(p.r)가 상위(작은 숫자)면 -> val은 음수여야 함
+            if (initialRanks[p.r] < initialRanks[p.c]) {{
+                if (val > 0) {{ slider.value = 0; val = 0; }} 
+            }} 
+            // B(p.c)가 상위면 -> val은 양수여야 함
+            else if (initialRanks[p.r] > initialRanks[p.c]) {{
+                if (val < 0) {{ slider.value = 0; val = 0; }}
+            }}
+
             const disp = document.getElementById('val-display');
             let perc = (val + 4) * 12.5;
+            
+            // [디자인 유지] -4~4 전체 바 형태 유지
             if(val < 0) slider.style.background = `linear-gradient(to right, #dee2e6 0%, #dee2e6 ${{perc}}%, #228be6 ${{perc}}%, #228be6 50%, #dee2e6 50%, #dee2e6 100%)`;
             else if(val > 0) slider.style.background = `linear-gradient(to right, #dee2e6 0%, #dee2e6 50%, #fa5252 50%, #fa5252 ${{perc}}%, #dee2e6 ${{perc}}%, #dee2e6 100%)`;
             else slider.style.background = '#dee2e6';
@@ -278,17 +282,22 @@ else:
             grid.innerHTML = "";
             const pill = document.getElementById('status-pill');
             
-            // 1. 계산 단계 (첫 질문이면 건너뛰기 가능하지만, 일관성을 위해 계산은 하되 표시는 안 함)
             let weights = calculateWeights();
             const EPSILON = 0.00001;
 
+            // [핵심] 순위 계산 시, 동점이면 '기존 순위' 우선 (절대 동순위 없음)
             let indexedWeights = weights.map((w, i) => ({{w, i}}));
-            indexedWeights.sort((a,b) => b.w - a.w);
+            indexedWeights.sort((a,b) => {{
+                // 1차: 가중치 내림차순
+                if (Math.abs(b.w - a.w) > EPSILON) return b.w - a.w;
+                // 2차: 기존 순위 오름차순 (Tie-breaking)
+                return initialRanks[a.i] - initialRanks[b.i];
+            }});
+
             let rankMap = {{}};
-            let currentRank = 1;
-            indexedWeights.forEach((obj, idx) => {{
-                if (idx > 0 && Math.abs(obj.w - indexedWeights[idx-1].w) < EPSILON) {{}} else {{ currentRank = idx + 1; }}
-                rankMap[obj.i] = currentRank;
+            indexedWeights.forEach((obj, rankIdx) => {{
+                // rankIdx는 0부터 시작하므로 +1해서 1위, 2위... 할당 (중복 없음)
+                rankMap[obj.i] = rankIdx + 1;
             }});
 
             let flippedIndices = new Set();
@@ -318,15 +327,17 @@ else:
 
             fixedOrder.forEach(item => {{
                 let isFlipped = flippedIndices.has(item.idx);
+                let curRank = rankMap[item.idx];
+                
                 let borderStyle = isFlipped ? "2px solid #fa5252 !important" : "1px solid #dee2e6";
                 let bgStyle = isFlipped ? "#fff5f5 !important" : "white";
-                let shadow = isFlipped ? "box-shadow: 0 4px 12px rgba(250, 82, 82, 0.15);" : "";
                 let textColorClass = isFlipped ? "error-text" : "match-text";
-                
-                // [핵심] 첫 질문일 때는 '현재 순위' HTML 자체를 렌더링 안 함 (삭제)
+                let shadow = isFlipped ? "box-shadow: 0 4px 12px rgba(250, 82, 82, 0.15);" : "";
+
+                // [핵심] 첫 질문일 때는 '현재 순위' 아예 표시 안 함
                 let currentRankHtml = "";
                 if (pairIdx > 0) {{
-                    currentRankHtml = `<div class="rank-row"><span>현재:</span><span class="rank-val ${{textColorClass}}">${{rankMap[item.idx]}}위</span></div>`;
+                    currentRankHtml = `<div class="rank-row"><span>현재:</span><span class="rank-val ${{textColorClass}}">${{curRank}}위</span></div>`;
                 }}
 
                 grid.innerHTML += `
@@ -362,13 +373,14 @@ else:
             let weights = calculateWeights(sliderVal);
             const EPSILON = 0.00001;
 
-            let indexedWeights = weights.map((w, i) => ({{w, i}})).sort((a,b) => b.w - a.w);
-            let rankMap = {{}};
-            let currentRank = 1;
-            indexedWeights.forEach((obj, idx) => {{
-                if (idx > 0 && Math.abs(obj.w - indexedWeights[idx-1].w) < EPSILON) {{}} else {{ currentRank = idx + 1; }}
-                rankMap[obj.i] = currentRank;
+            let indexedWeights = weights.map((w, i) => ({{w, i}}));
+            indexedWeights.sort((a,b) => {{
+                if (Math.abs(b.w - a.w) > EPSILON) return b.w - a.w;
+                return initialRanks[a.i] - initialRanks[b.i];
             }});
+            
+            let rankMap = {{}};
+            indexedWeights.forEach((obj, idx) => {{ rankMap[obj.i] = idx + 1; }});
 
             let flippedPairs = [];
             for(let i=0; i<items.length; i++) {{
