@@ -72,7 +72,6 @@ else:
         .container {{ max-width: 700px; margin: 0 auto; background: white; padding: 25px; border-radius: 15px; box-shadow: 0 4px 15px rgba(0,0,0,0.05); }}
         .step {{ display: none; }} .active {{ display: block; }}
         
-        /* 랭킹 보드 스타일 */
         .ranking-board {{ background: #f1f3f5; padding: 18px; border-radius: 12px; margin-bottom: 25px; border: 1px solid #dee2e6; }}
         .board-title {{ font-weight: bold; color: #495057; font-size: 0.9em; margin-bottom: 15px; display: flex; justify-content: space-between; align-items: center; }}
         .status-pill {{ padding: 4px 12px; border-radius: 20px; font-size: 0.82em; font-weight: bold; }}
@@ -87,7 +86,6 @@ else:
             transition: all 0.3s ease;
         }}
         
-        /* [디자인 개선] 붉은 테두리: 2px, 부드러운 그림자 */
         .flipped-card {{
             border: 2px solid #fa5252 !important;
             background-color: #fff5f5 !important;
@@ -98,21 +96,17 @@ else:
         .rank-row {{ display: flex; justify-content: space-between; font-size: 0.85em; color: #666; }}
         .rank-val {{ font-weight: bold; color: #228be6; }}
         
-        /* 역전 텍스트 */
         .error-text {{ color: #fa5252 !important; font-weight: 900; }}
+        .match-text {{ color: #228be6; }}
 
         .card {{ background: #fff; padding: 30px; border-radius: 15px; text-align: center; margin-bottom: 20px; border: 1px solid #e9ecef; box-shadow: 0 4px 12px rgba(0,0,0,0.03); }}
         input[type=range] {{ -webkit-appearance: none; width: 100%; height: 12px; background: #dee2e6; border-radius: 6px; outline: none; margin: 35px 0; }}
         input[type=range]::-webkit-slider-thumb {{ -webkit-appearance: none; appearance: none; width: 28px; height: 28px; background: #228be6; border: 4px solid white; border-radius: 50%; cursor: pointer; box-shadow: 0 2px 6px rgba(0,0,0,0.2); position: relative; z-index: 5; }}
 
-        /* 버튼 스타일 */
         .btn {{ width: 100%; padding: 15px; background: #228be6; color: white; border: none; border-radius: 10px; font-size: 1.1em; font-weight: bold; cursor: pointer; }}
-        .btn-secondary {{ background: #adb5bd; }} /* 기본 회색 */
+        .btn-secondary {{ background: #adb5bd; }}
+        .btn-reset {{ background: #868e96; color: white; }} 
         
-        /* [수정됨] 순위 변경 버튼: 짙은 회색으로 변경 */
-        .btn-reset {{ background: #495057; color: white; }} 
-        
-        /* 버튼 그리드: 2칸 나란히 */
         .btn-grid {{ display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-top: 20px; }}
 
         .modal {{ display: none; position: fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.7); justify-content:center; align-items:center; z-index:9999; }}
@@ -230,18 +224,27 @@ else:
             document.getElementById('item-b').innerText = p.b;
             document.getElementById('hint-a').innerText = initialRanks[p.r];
             document.getElementById('hint-b').innerText = initialRanks[p.c];
-            document.getElementById('slider').value = 0;
             
-            // [버튼 배치]
+            const slider = document.getElementById('slider');
+            
+            // [슬라이더 이동 제한] 반대 방향은 아예 min/max로 차단
+            if (initialRanks[p.r] < initialRanks[p.c]) {{
+                // A(p.r)가 상위 -> 왼쪽(-4~0)만 허용
+                slider.min = -4; slider.max = 0;
+            }} else {{
+                // B(p.c)가 상위 -> 오른쪽(0~4)만 허용 (중복 순위 없으므로 else if 불필요)
+                slider.min = 0; slider.max = 4;
+            }}
+            
+            slider.value = 0;
+            
             const btnArea = document.getElementById('btn-area');
             if (pairIdx === 0) {{
-                // 첫 질문: [순위 재설정(회색)] [다음]
                 btnArea.innerHTML = `
                     <button class="btn btn-reset" onclick="resetTask()">🔄 순위 변경</button>
                     <button class="btn" onclick="checkLogic()">다음 질문 ➡</button>
                 `;
             }} else {{
-                // 이후: [이전] [다음]
                 btnArea.innerHTML = `
                     <button class="btn btn-secondary" onclick="goBack()">⬅ 이전 질문</button>
                     <button class="btn" onclick="checkLogic()">다음 질문 ➡</button>
@@ -275,6 +278,7 @@ else:
             grid.innerHTML = "";
             const pill = document.getElementById('status-pill');
             
+            // 1. 계산 단계 (첫 질문이면 건너뛰기 가능하지만, 일관성을 위해 계산은 하되 표시는 안 함)
             let weights = calculateWeights();
             const EPSILON = 0.00001;
 
@@ -288,15 +292,12 @@ else:
             }});
 
             let flippedIndices = new Set();
-            
-            // [핵심] 첫 질문(pairIdx === 0)에서는 역전 감지 로직 SKIP
             if (pairIdx > 0) {{
                 for(let i=0; i<items.length; i++) {{
                     for(let j=0; j<items.length; j++) {{
                         if(i === j) continue;
                         if (initialRanks[i] < initialRanks[j] && rankMap[i] > rankMap[j]) {{
-                            flippedIndices.add(i); 
-                            flippedIndices.add(j);
+                            flippedIndices.add(i); flippedIndices.add(j);
                         }}
                     }}
                 }}
@@ -317,19 +318,22 @@ else:
 
             fixedOrder.forEach(item => {{
                 let isFlipped = flippedIndices.has(item.idx);
-                let curRank = rankMap[item.idx];
-                
-                // [디자인] 2px 테두리 + 부드러운 그림자
                 let borderStyle = isFlipped ? "2px solid #fa5252 !important" : "1px solid #dee2e6";
                 let bgStyle = isFlipped ? "#fff5f5 !important" : "white";
-                let textColorClass = isFlipped ? "error-text" : "match-text";
                 let shadow = isFlipped ? "box-shadow: 0 4px 12px rgba(250, 82, 82, 0.15);" : "";
+                let textColorClass = isFlipped ? "error-text" : "match-text";
+                
+                // [핵심] 첫 질문일 때는 '현재 순위' HTML 자체를 렌더링 안 함 (삭제)
+                let currentRankHtml = "";
+                if (pairIdx > 0) {{
+                    currentRankHtml = `<div class="rank-row"><span>현재:</span><span class="rank-val ${{textColorClass}}">${{rankMap[item.idx]}}위</span></div>`;
+                }}
 
                 grid.innerHTML += `
                 <div class="board-item" style="border: ${{borderStyle}}; background-color: ${{bgStyle}}; ${{shadow}}">
                     <span class="item-name">${{item.name}}</span>
                     <div class="rank-row"><span>기존:</span><span class="rank-val">${{item.org}}위</span></div>
-                    <div class="rank-row"><span>현재:</span><span class="rank-val ${{textColorClass}}">${{curRank}}위</span></div>
+                    ${{currentRankHtml}}
                 </div>`;
             }});
         }}
@@ -456,14 +460,10 @@ else:
                     secret_key = survey_data.get("secret_key", "public")
                     if not os.path.exists("survey_data"): os.makedirs("survey_data")
                     file_path = f"survey_data/{secret_key}_{goal_clean}.csv"
-                    # 문법 오류 수정 완료: 세미콜론 제거 및 줄바꿈
                     save_dict = {"Time": datetime.now().strftime("%Y-%m-%d %H:%M"), "Respondent": respondent, "Raw_Data": code}
                     df = pd.DataFrame([save_dict])
-                    try:
-                        old_df = pd.read_csv(file_path)
-                    except:
-                        old_df = pd.DataFrame()
+                    try: old_df = pd.read_csv(file_path)
+                    except: old_df = pd.DataFrame()
                     pd.concat([old_df, df], ignore_index=True).to_csv(file_path, index=False)
-                    st.success("✅ 제출 성공!")
-                    st.balloons()
+                    st.success("✅ 제출 성공!"); st.balloons()
                 except: st.error("코드 오류")
