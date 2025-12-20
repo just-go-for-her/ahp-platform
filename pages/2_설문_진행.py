@@ -42,14 +42,14 @@ if not is_respondent:
         st.warning("⚠️ [1번 페이지]에서 구조를 먼저 확정하세요."); st.stop()
     project_key = st.text_input("프로젝트 비밀번호(Key) 설정", type="password")
     if st.button("🔗 공유 링크 생성하기", type="primary", use_container_width=True):
-        if not project_key: st.error("비밀번호를 입력해주세요.")
+        if not project_key: st.error("비밀번호 설정 필요")
         else:
             full_structure = {**survey_data, "secret_key": project_key}
             survey_id = uuid.uuid4().hex[:8]
             with open(os.path.join(CONFIG_DIR, f"{survey_id}.json"), "w", encoding="utf-8") as f:
                 json.dump(full_structure, f, ensure_ascii=False, indent=2)
             st.code(f"{FULL_URL}?id={survey_id}")
-            st.success("공유 링크가 생성되었습니다.")
+            st.success("링크 생성 완료!")
 
 else:
     st.title(f"📝 {survey_data['goal']}")
@@ -77,7 +77,7 @@ else:
         .status-pill {{ padding: 4px 12px; border-radius: 20px; font-size: 0.82em; font-weight: bold; }}
         
         .board-grid {{ display: flex; gap: 10px; overflow-x: auto; padding-bottom: 8px; }}
-        .board-item {{ min-width: 150px; background: white; padding: 12px; border-radius: 12px; text-align: center; border: 1px solid #dee2e6; flex: 1; display: flex; flex-direction: column; gap: 8px; }}
+        .board-item {{ min-width: 155px; background: white; padding: 15px; border-radius: 12px; text-align: center; border: 1px solid #dee2e6; flex: 1; display: flex; flex-direction: column; gap: 8px; }}
         
         .item-name {{ font-weight: 800; color: #343a40; border-bottom: 1px solid #f1f3f5; padding-bottom: 6px; }}
         .rank-row {{ display: flex; justify-content: space-between; align-items: center; font-size: 0.85em; color: #666; padding: 0 4px; }}
@@ -104,7 +104,7 @@ else:
 
         <div id="live-board" class="ranking-board" style="display:none;">
             <div class="board-title">
-                <span>📊 실시간 순위 현황 (기존 설정 순서)</span>
+                <span>📊 실시간 순위 현황 (설정 순서 고정)</span>
                 <span id="status-pill" class="status-pill">체크 중</span>
             </div>
             <div id="board-grid" class="board-grid"></div>
@@ -148,11 +148,11 @@ else:
         <div class="modal-box">
             <h3 style="color:#fa5252; margin-top:0;">⚠️ 순위 역전 감지</h3>
             <p style="font-size:0.95em; color:#495057; line-height:1.7; margin-bottom:25px;">
-                현재 응답을 적용하면 기존에 설정한 순서가 완전히 뒤바뀌게 됩니다.<br><b>변경된 의사를 인정</b>하시겠습니까, 아니면 <b>응답을 수정</b>하시겠습니까?
+                현재 응답을 적용하면 기존에 설정한 순서가 뒤바뀌게 됩니다.<br><b>변경된 의사를 인정</b>하시겠습니까, 아니면 <b>응답을 수정</b>하시겠습니까?
             </p>
             <div style="display:grid; gap:12px;">
                 <button class="btn" onclick="closeModal('resurvey')" style="background:#228be6;">👈 현재 답변 수정 (기존 순위 유지)</button>
-                <button class="btn" onclick="closeModal('updaterank')" style="background:#868e96;">✅ 바뀐 순위 인정 (설정값 업데이트)</button>
+                <button class="btn" onclick="closeModal('updaterank')" style="background:#868e96;">✅ 순위 변경 인정 (변동 순위 반영)</button>
             </div>
         </div>
     </div>
@@ -219,7 +219,7 @@ else:
             const p = pairs[pairIdx];
 
             if (val > 0) {{
-                alert(`안내: 현재 [${{p.a}}] 항목의 기존 순위가 더 높습니다.\\n설정하신 논리에 따라 왼쪽 방향으로만 가중치를 선택하실 수 있습니다.`);
+                alert(`⚠️ 오류: [${{p.a}}] 항목이 처음에 더 높은 순위로 설정되었습니다.\\n설정하신 순서에 맞게 왼쪽(A 우세) 방향으로만 선택할 수 있습니다.`);
                 slider.value = 0; val = 0;
             }}
 
@@ -248,16 +248,20 @@ else:
             let hasFlip = false;
             fixedOrder.forEach(item => {{
                 const cur = currentRanks[item.idx];
-                let isFlip = false;
-                for(let k=0; k<items.length; k++) {{
-                    if(initialRanks[item.idx] < initialRanks[k] && currentRanks[item.idx] > currentRanks[k]) isFlip = true;
-                }}
-                if(isFlip) hasFlip = true;
                 
-                grid.innerHTML += `<div class="board-item" style="border-color:${{isFlip?'#fa5252':'#dee2e6'}}">
+                // [핵심] 공동 순위는 역전이 아님. 엄격하게 i가 j보다 높았는데 j가 i보다 높은 상황만 체크
+                let isFlipped = false;
+                for(let k=0; k<items.length; k++) {{
+                    if(initialRanks[item.idx] < initialRanks[k] && currentRanks[item.idx] > currentRanks[k]) {{
+                        isFlipped = true; break;
+                    }}
+                }}
+                if(isFlipped) hasFlip = true;
+                
+                grid.innerHTML += `<div class="board-item" style="border-color:${{isFlipped?'#fa5252':'#dee2e6'}}">
                     <span class="item-name">${{item.name}}</span>
                     <div class="rank-row"><span>기존 순위:</span><span class="rank-val">${{item.org}}위</span></div>
-                    <div class="rank-row"><span>변동 순위:</span><span class="rank-val ${{isFlip?'error-color':'match-color'}}">${{cur}}위</span></div>
+                    <div class="rank-row"><span>변동 순위:</span><span class="rank-val ${{isFlipped?'error-color':'match-color'}}">${{cur}}위</span></div>
                 </div>`;
             }});
 
@@ -343,9 +347,9 @@ else:
     components.html(html_code, height=850, scrolling=True)
 
     st.divider()
-    with st.form("data_submission_form"):
+    with st.form("data_save_final"):
         respondent = st.text_input("응답자 성함")
-        code = st.text_area("결과 코드를 복사해서 붙여넣으세요")
+        code = st.text_area("결과 코드를 붙여넣으세요")
         if st.form_submit_button("최종 제출", type="primary"):
             if respondent and code:
                 try:
@@ -354,11 +358,9 @@ else:
                     secret_key = survey_data.get("secret_key", "public")
                     if not os.path.exists("survey_data"): os.makedirs("survey_data")
                     file_path = f"survey_data/{secret_key}_{goal_clean}.csv"
-                    # 파이썬 딕셔너리 기법 수정 완료
+                    # 파이썬 저장 딕셔너리 기호 처리
                     save_dict = {"Time": datetime.now().strftime("%Y-%m-%d %H:%M"), "Respondent": respondent, "Raw_Data": code}
-                    df = pd.DataFrame([save_dict])
-                    try: old_df = pd.read_csv(file_path)
-                    except: old_df = pd.DataFrame()
+                    df = pd.DataFrame([save_dict]); try: old_df = pd.read_csv(file_path); except: old_df = pd.DataFrame()
                     pd.concat([old_df, df], ignore_index=True).to_csv(file_path, index=False)
-                    st.success("✅ 설문이 제출되었습니다!"); st.balloons()
-                except: st.error("코드 형식이 올바르지 않습니다.")
+                    st.success("✅ 제출 성공!"); st.balloons()
+                except: st.error("코드 오류")
