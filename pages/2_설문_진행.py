@@ -131,10 +131,10 @@ else:
         <div class="modal-box">
             <h3 style="color:#e03131; margin-top:0;">⚠️ 순위 역전 감지</h3>
             <p style="font-size:0.95em; color:#495057; line-height:1.6; text-align:left;">
-                현재 응답을 적용하면 처음 설정한 기대 순위와 실제 순위가 달라집니다.
+                현재 응답은 처음 설정한 기대 순위와 상충합니다.
             </p>
             <div style="display:grid; gap:10px; margin-top:20px;">
-                <button class="btn" onclick="closeModal('resurvey')" style="background:#228be6;">📍 다시 설문 (기존 순위 유지)</button>
+                <button class="btn" onclick="closeModal('resurvey')" style="background:#228be6;">📍 다시 설문 (순위 유지)</button>
                 <button class="btn" onclick="closeModal('updaterank')" style="background:#868e96;">🔄 순위 변경 (현재 응답 인정)</button>
             </div>
         </div>
@@ -184,19 +184,24 @@ else:
             updateBoard(false);
         }}
 
+        function updateUI() {{
+            updateLabel(); 
+            updateBoard(false);
+        }}
+
         function updateLabel() {{
             const val = parseInt(document.getElementById('slider').value);
             const p = pairs[pairIdx]; const disp = document.getElementById('val-display');
             if(val == 0) disp.innerText = "동등함 (1:1)";
             else if(val < 0) disp.innerText = `${{p.a}} ${{Math.abs(val)+1}}배 중요`;
             else disp.innerText = `${{p.b}} ${{val+1}}배 중요`;
-            updateBoard(false);
         }}
 
         function updateBoard(finalCheck) {{
             const grid = document.getElementById('board-grid'); grid.innerHTML = "";
             const status = document.getElementById('logic-status');
             
+            // 첫 번째 질문일 때는 보드에 순위를 표시하지 않음 (기준점 설정 중)
             if (pairIdx === 0 && !finalCheck) {{
                 status.innerText = "📍 기준점 설정 중..."; status.style.color = "#495057";
                 items.forEach((item, i) => {{
@@ -235,6 +240,8 @@ else:
             const p = pairs[pairIdx];
             const w = val === 0 ? 1 : (val < 0 ? Math.abs(val)+1 : 1/(val+1));
             tempMatrix[p.r][p.c] = w; tempMatrix[p.c][p.r] = 1/w;
+            
+            // 아직 답변 안 한 부분은 1로 채워 현재 입력값의 영향만 측정
             for(let i=0; i<n; i++) {{
                 for(let j=0; j<n; j++) {{
                     if(tempMatrix[i][j] === 0) tempMatrix[i][j] = 1;
@@ -270,7 +277,7 @@ else:
                 sortedIdx.forEach((idx, i) => initialRanks[idx] = i + 1);
                 saveAndNext();
             }} else {{
-                document.getElementById('slider').value = 0; updateLabel();
+                document.getElementById('slider').value = 0; updateUI();
             }}
         }}
 
