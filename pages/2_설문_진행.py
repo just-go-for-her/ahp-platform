@@ -190,8 +190,8 @@ else:
                 <div style="color:#868e96; font-size:0.85em; margin-top:5px;">(다른 항목들과의 관계를 고려한 최적값)</div>
             </div>
             <div style="display:grid; gap:12px;">
-                <button class="btn" onclick="closeModal('cr', 'use_rec')" style="background:#228be6;">👌 추천값 적용 (자동 수정)</button>
-                <button class="btn" onclick="closeModal('cr', 'keep')" style="background:#adb5bd;">➡️ 기존 값 유지 (그대로 진행)</button>
+                <button class="btn" onclick="closeModal('cr', 'use_rec')" style="background:#228be6;">👌 추천값 적용 (재설문)</button>
+                <button class="btn" onclick="closeModal('cr', 'keep')" style="background:#adb5bd;">➡️ 기존 값 유지 (강행)</button>
             </div>
         </div>
     </div>
@@ -422,7 +422,6 @@ else:
             if (pairIdx === 0) {{ saveAndNext(); return; }}
             const sliderVal = parseInt(document.getElementById('slider').value);
             
-            // 1. 역전 체크
             let weights = calculateWeights(sliderVal);
             const EPSILON = 0.00001;
             let indexedWeights = weights.map((w, i) => ({{w, i}})).sort((a,b) => {{
@@ -452,7 +451,6 @@ else:
                 return; 
             }}
 
-            // 2. CR 체크
             if (pairIdx >= 2) {{
                 let cr = getCR(sliderVal);
                 if (cr > 0.1) {{
