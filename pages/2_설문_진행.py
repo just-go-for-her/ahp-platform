@@ -86,7 +86,6 @@ else:
             transition: all 0.3s ease;
         }}
         
-        /* 붉은 테두리 (순위 역전) */
         .flipped-card {{
             border: 2px solid #fa5252 !important;
             background-color: #fff5f5 !important;
@@ -145,7 +144,7 @@ else:
                 <div style="font-size:0.95em; color:#adb5bd; margin-bottom:10px;">
                     (기존 순위: <span id="hint-a"></span>위) vs (기존 순위: <span id="hint-b"></span>위)
                 </div>
-                <input type="range" id="slider" min="-4" max="4" value="0" step="1" oninput="updateUI()">
+                <input type="range" id="slider" min="-4" max="4" value="0" step="1" oninput="updateUI(true)">
                 <div id="val-display" style="font-weight:bold; color:#343a40; font-size:1.4em;">동등함</div>
             </div>
             
@@ -204,8 +203,11 @@ else:
             }}
             if(new Set(initialRanks).size !== initialRanks.length) {{ alert("중복 순위가 있습니다."); return; }}
             
+            // 순위대로 정렬 (1위, 2위, 3위...)
             tempIdxMap.sort((a, b) => a.rank - b.rank);
+            
             pairs = [];
+            // 정렬된 순서대로 쌍 생성 (항상 상위 순위가 왼쪽(A)에 오도록 됨)
             for(let i=0; i<tempIdxMap.length; i++) {{
                 for(let j=i+1; j<tempIdxMap.length; j++) {{
                     pairs.push({{ 
@@ -214,9 +216,13 @@ else:
                     }});
                 }}
             }}
+            
             const n = items.length; matrix = Array.from({{length: n}}, () => Array(n).fill(0));
             for(let i=0; i<n; i++) matrix[i][i] = 1;
-            pairIdx = 0; showStep('step-compare'); renderPair();
+            
+            pairIdx = 0; 
+            showStep('step-compare'); 
+            renderPair();
         }}
 
         function renderPair() {{
@@ -241,22 +247,26 @@ else:
             }}
 
             document.getElementById('live-board').style.display = 'block';
-            updateUI();
+            // Render board but don't check for alerts yet
+            updateUI(false); 
         }}
 
-        function updateUI() {{
+        function updateUI(checkAlert = false) {{
             const slider = document.getElementById('slider');
             let val = parseInt(slider.value);
             const p = pairs[pairIdx];
 
-            // [슬라이더 제한 경고]
-            if (initialRanks[p.r] < initialRanks[p.c] && val > 0) {{
-                alert(`🚫 [입력 제한] \\n\\n이미 '${{p.a}}' 항목을 상위 순위로 설정하셨습니다.\\n따라서 점수도 '${{p.a}}' 쪽(왼쪽)으로만 줄 수 있습니다.`);
-                slider.value = 0; val = 0;
-            }} 
-            else if (initialRanks[p.r] > initialRanks[p.c] && val < 0) {{
-                alert(`🚫 [입력 제한] \\n\\n이미 '${{p.b}}' 항목을 상위 순위로 설정하셨습니다.\\n따라서 점수도 '${{p.b}}' 쪽(오른쪽)으로만 줄 수 있습니다.`);
-                slider.value = 0; val = 0;
+            // [핵심] 슬라이더 이동 방향 제한 (Alert & Reset)
+            // p.r(A)이 p.c(B)보다 순위가 높음(숫자가 작음) -> val은 음수(왼쪽)여야 함
+            if (checkAlert) {{
+                if (initialRanks[p.r] < initialRanks[p.c] && val > 0) {{
+                    alert(`🚫 [논리 보호]\\n\\n이미 '${{p.a}}' 항목을 상위 순위로 설정하셨습니다.\\n따라서 점수도 '${{p.a}}' 쪽(왼쪽)으로만 줄 수 있습니다.`);
+                    slider.value = 0; val = 0;
+                }} 
+                else if (initialRanks[p.r] > initialRanks[p.c] && val < 0) {{
+                    alert(`🚫 [논리 보호]\\n\\n이미 '${{p.b}}' 항목을 상위 순위로 설정하셨습니다.\\n따라서 점수도 '${{p.b}}' 쪽(오른쪽)으로만 줄 수 있습니다.`);
+                    slider.value = 0; val = 0;
+                }}
             }}
 
             const disp = document.getElementById('val-display');
@@ -281,6 +291,7 @@ else:
             let weights = calculateWeights();
             const EPSILON = 0.00001;
 
+            // 순위 계산 (동점 처리: 기존 순위 우선 -> 절대 동순위 없음)
             let indexedWeights = weights.map((w, i) => ({{w, i}}));
             indexedWeights.sort((a,b) => {{
                 if (Math.abs(b.w - a.w) > EPSILON) return b.w - a.w;
@@ -317,12 +328,16 @@ else:
 
             fixedOrder.forEach(item => {{
                 let isFlipped = flippedIndices.has(item.idx);
+                
+                // [핵심] 첫 질문(pairIdx==0)일 땐 '현재 순위' = '기존 순위'로 고정 (울렁임 방지)
                 let curRank = (pairIdx === 0) ? item.org : rankMap[item.idx];
+                
                 let borderStyle = isFlipped ? "2px solid #fa5252 !important" : "1px solid #dee2e6";
                 let bgStyle = isFlipped ? "#fff5f5 !important" : "white";
                 let textColorClass = isFlipped ? "error-text" : "match-text";
                 let shadow = isFlipped ? "box-shadow: 0 4px 12px rgba(250, 82, 82, 0.15);" : "";
 
+                // [핵심] 첫 질문에서는 '현재 순위' 행을 아예 안 보여줌 (깔끔)
                 let currentRankHtml = "";
                 if (pairIdx > 0) {{
                     currentRankHtml = `<div class="rank-row"><span>현재:</span><span class="rank-val ${{textColorClass}}">${{curRank}}위</span></div>`;
@@ -359,7 +374,6 @@ else:
             if (pairIdx === 0) {{ saveAndNext(); return; }}
             const sliderVal = parseInt(document.getElementById('slider').value);
             
-            // 1. 역전 체크 (Flip Check)
             let weights = calculateWeights(sliderVal);
             const EPSILON = 0.00001;
             let indexedWeights = weights.map((w, i) => ({{w, i}})).sort((a,b) => {{
@@ -389,7 +403,7 @@ else:
                 return; 
             }}
 
-            // CR 체크 로직 제거 (데이터 센터에서 처리)
+            // CR 체크는 데이터 센터(Page 3)로 이관됨 -> 바로 저장
             saveAndNext();
         }}
 
@@ -408,7 +422,8 @@ else:
         }}
 
         function resetTask() {{
-            if(confirm("순위 설정 화면으로 돌아가시겠습니까?\\n(현재 단계의 입력 내용은 초기화됩니다)")) {{ 
+            // 현재 작업의 순위 설정 화면(1단계)으로 돌아감 (새로고침 아님)
+            if(confirm("순위 설정 화면으로 돌아가시겠습니까?\\n(입력한 내용은 초기화됩니다)")) {{ 
                 loadTask(); 
             }}
         }}
@@ -455,10 +470,8 @@ else:
                     file_path = f"survey_data/{secret_key}_{goal_clean}.csv"
                     save_dict = {"Time": datetime.now().strftime("%Y-%m-%d %H:%M"), "Respondent": respondent, "Raw_Data": code}
                     df = pd.DataFrame([save_dict])
-                    try: 
-                        old_df = pd.read_csv(file_path)
-                    except: 
-                        old_df = pd.DataFrame()
+                    try: old_df = pd.read_csv(file_path)
+                    except: old_df = pd.DataFrame()
                     pd.concat([old_df, df], ignore_index=True).to_csv(file_path, index=False)
                     st.success("✅ 제출 성공!"); st.balloons()
                 except: st.error("코드 오류")
