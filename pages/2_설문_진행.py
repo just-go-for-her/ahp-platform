@@ -86,6 +86,7 @@ else:
             transition: all 0.3s ease;
         }}
         
+        /* 붉은 테두리 */
         .flipped-card {{
             border: 2px solid #fa5252 !important;
             background-color: #fff5f5 !important;
@@ -112,6 +113,9 @@ else:
         .modal {{ display: none; position: fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.7); justify-content:center; align-items:center; z-index:9999; }}
         .modal-box {{ background:white; padding:35px; border-radius:20px; width:90%; max-width:450px; text-align:center; }}
         
+        .cr-info {{ background: #fff9db; padding: 15px; border-radius: 8px; margin: 15px 0; text-align: left; font-size: 0.9em; border: 1px solid #ffe066; color: #495057; }}
+        .rec-val {{ color: #e67700; font-weight: bold; font-size: 1.1em; }}
+
         .flip-list {{ text-align: left; background: #fff5f5; padding: 15px; border-radius: 8px; margin-bottom: 20px; border: 1px solid #ffc9c9; font-size: 0.9em; color: #c92a2a; }}
         .flip-item {{ margin-bottom: 4px; font-weight: bold; }}
     </style>
@@ -174,10 +178,30 @@ else:
         </div>
     </div>
 
+    <div id="modal-cr" class="modal">
+        <div class="modal-box">
+            <h3 style="color:#fab005; margin-top:0;">💡 답변 일관성 확인</h3>
+            <p style="font-size:0.95em; color:#495057; margin-bottom:15px;">
+                앞서 응답하신 내용들과 비교했을 때,<br>
+                현재 점수는 <b>논리적 일관성</b>이 다소 부족합니다. (CR > 0.1)
+            </p>
+            <div class="cr-info">
+                <div>🧠 <b>AI 추천값:</b> <span id="rec-text" class="rec-val"></span></div>
+                <div style="color:#868e96; font-size:0.85em; margin-top:5px;">(다른 항목들과의 관계를 고려한 최적값)</div>
+            </div>
+            <div style="display:grid; gap:12px;">
+                <button class="btn" onclick="closeModal('cr', 'use_rec')" style="background:#228be6;">👌 추천값 적용 (자동 수정)</button>
+                <button class="btn" onclick="closeModal('cr', 'keep')" style="background:#adb5bd;">➡️ 기존 값 유지 (그대로 진행)</button>
+            </div>
+        </div>
+    </div>
+
     <script>
         const tasks = {js_tasks};
         let currentTaskIdx = 0, items = [], pairs = [], matrix = [], pairIdx = 0, initialRanks = [];
         let allAnswers = {{}};
+        let recommendedWeight = 1; // 추천값 저장
+        const RI_TABLE = [0, 0, 0, 0.58, 0.90, 1.12, 1.24, 1.32, 1.41, 1.45, 1.49];
 
         function loadTask() {{
             if (currentTaskIdx >= tasks.length) {{ finishAll(); return; }}
@@ -248,13 +272,11 @@ else:
             let val = parseInt(slider.value);
             const p = pairs[pairIdx];
 
-            // [직관적 경고 기능]
-            // 왼쪽(A)이 더 상위 순위(1위 등)인데, 슬라이더를 오른쪽(양수)으로 움직였을 때
+            // [경고] 순위가 낮은 쪽으로 슬라이더 이동 시
             if (initialRanks[p.r] < initialRanks[p.c] && val > 0) {{
                 alert(`🚫 [입력 제한] \\n\\n이미 '${{p.a}}' 항목을 상위 순위로 설정하셨습니다.\\n따라서 점수도 '${{p.a}}' 쪽(왼쪽)으로만 줄 수 있습니다.`);
                 slider.value = 0; val = 0;
             }} 
-            // 오른쪽(B)이 더 상위 순위일 때 (로직상 이 경우는 잘 없지만 방어코드)
             else if (initialRanks[p.r] > initialRanks[p.c] && val < 0) {{
                 alert(`🚫 [입력 제한] \\n\\n이미 '${{p.b}}' 항목을 상위 순위로 설정하셨습니다.\\n따라서 점수도 '${{p.b}}' 쪽(오른쪽)으로만 줄 수 있습니다.`);
                 slider.value = 0; val = 0;
@@ -282,7 +304,6 @@ else:
             let weights = calculateWeights();
             const EPSILON = 0.00001;
 
-            // 순위 계산 (동점 시 기존 순위 우선 - 절대 동순위 없음)
             let indexedWeights = weights.map((w, i) => ({{w, i}}));
             indexedWeights.sort((a,b) => {{
                 if (Math.abs(b.w - a.w) > EPSILON) return b.w - a.w;
@@ -326,7 +347,6 @@ else:
                 let textColorClass = isFlipped ? "error-text" : "match-text";
                 let shadow = isFlipped ? "box-shadow: 0 4px 12px rgba(250, 82, 82, 0.15);" : "";
 
-                // 첫 질문일 땐 '현재 순위' 아예 표시 안 함
                 let currentRankHtml = "";
                 if (pairIdx > 0) {{
                     currentRankHtml = `<div class="rank-row"><span>현재:</span><span class="rank-val ${{textColorClass}}">${{curRank}}위</span></div>`;
@@ -359,19 +379,62 @@ else:
             return weights.map(v => v / sum);
         }}
 
+        // [NEW] CR 계산
+        function getCR(currentVal) {{
+            const n = items.length;
+            if (n <= 2) return 0;
+            
+            let tempMatrix = matrix.map(row => [...row]);
+            let p = pairs[pairIdx];
+            let w_abs = Math.abs(currentVal) + 1;
+            let w_final = (currentVal <= 0) ? w_abs : (1 / w_abs);
+
+            tempMatrix[p.r][p.c] = w_final; tempMatrix[p.c][p.r] = 1 / w_final;
+            
+            // 근사 CR 계산
+            let weights = tempMatrix.map(row => Math.pow(row.reduce((a, b) => a * b, 1), 1/n));
+            let sum = weights.reduce((a, b) => a + b, 0);
+            let normWeights = weights.map(v => v / sum);
+
+            let lambdaMax = 0;
+            for(let i=0; i<n; i++) {{
+                let colSum = 0;
+                for(let j=0; j<n; j++) colSum += tempMatrix[j][i];
+                lambdaMax += colSum * normWeights[i];
+            }}
+            let ci = (lambdaMax - n) / (n - 1);
+            let ri = RI_TABLE[n] || 1.49;
+            return ci / ri;
+        }}
+
+        // [NEW] AI 추천값 계산
+        function getRecommendedWeight() {{
+            const n = items.length; const p = pairs[pairIdx];
+            let indirectVals = [];
+            for(let k=0; k<n; k++) {{
+                if(k !== p.r && k !== p.c && matrix[p.r][k] !== 0 && matrix[k][p.c] !== 0) {{
+                    indirectVals.push(matrix[p.r][k] * matrix[k][p.c]);
+                }}
+            }}
+            if(indirectVals.length === 0) return 1;
+            let geoMean = Math.exp(indirectVals.reduce((acc, v) => acc + Math.log(v), 0) / indirectVals.length);
+            if(geoMean >= 1) return Math.round(geoMean);
+            else return 1 / Math.round(1/geoMean);
+        }}
+
         function checkLogic() {{
             if (pairIdx === 0) {{ saveAndNext(); return; }}
             const sliderVal = parseInt(document.getElementById('slider').value);
+            
+            // 1. 역전 체크
             let weights = calculateWeights(sliderVal);
             const EPSILON = 0.00001;
-
-            let indexedWeights = weights.map((w, i) => ({{w, i}})).sort((a,b) => b.w - a.w);
-            let rankMap = {{}};
-            let currentRank = 1;
-            indexedWeights.forEach((obj, idx) => {{
-                if (idx > 0 && Math.abs(obj.w - indexedWeights[idx-1].w) < EPSILON) {{}} else {{ currentRank = idx + 1; }}
-                rankMap[obj.i] = currentRank;
+            let indexedWeights = weights.map((w, i) => ({{w, i}})).sort((a,b) => {{
+                if (Math.abs(b.w - a.w) > EPSILON) return b.w - a.w;
+                return initialRanks[a.i] - initialRanks[b.i];
             }});
+            let rankMap = {{}};
+            indexedWeights.forEach((obj, idx) => rankMap[obj.i] = idx + 1);
 
             let flippedPairs = [];
             for(let i=0; i<items.length; i++) {{
@@ -393,33 +456,59 @@ else:
                 return; 
             }}
 
+            // 2. CR 체크 (NEW)
+            if (pairIdx >= 2) {{
+                let cr = getCR(sliderVal);
+                if (cr > 0.1) {{
+                    let recW = getRecommendedWeight();
+                    recommendedWeight = recW;
+                    
+                    let txt = "동등 (1:1)";
+                    const p = pairs[pairIdx];
+                    if (recW > 1) txt = `왼쪽(${ {p.a} }) ${ {Math.round(recW)} }배`;
+                    else if (recW < 1) txt = `오른쪽(${ {p.b} }) ${ {Math.round(1/recW)} }배`;
+                    
+                    document.getElementById('rec-text').innerText = txt;
+                    document.getElementById('modal-cr').style.display = 'flex';
+                    return;
+                }}
+            }}
+
             saveAndNext();
         }}
 
         function closeModal(type, action) {{
             document.getElementById('modal-' + type).style.display = 'none';
-            if(type === 'flip') {{
+            if (type === 'flip') {{
                 if(action === 'updaterank') {{
-                    let weights = calculateWeights();
-                    let sortedIdx = weights.map((w, i) => i).sort((a, b) => weights[b] - weights[a]);
-                    sortedIdx.forEach((idx, i) => {{ initialRanks[idx] = i + 1; }});
-                    for (let k = pairIdx; k < pairs.length; k++) {{
-                        let p = pairs[k];
-                        if (initialRanks[p.r] > initialRanks[p.c]) {{
-                            let tr = p.r; pairs[k].r = p.c; pairs[k].c = tr;
-                            let ta = p.a; pairs[k].a = p.b; pairs[k].b = ta;
-                        }}
-                    }}
+                    // 순위 변경 인정 시 -> 재계산 후 다음
                     saveAndNext();
                 }} else {{
                     document.getElementById('slider').value = 0; updateUI();
                 }}
+            }} else if (type === 'cr') {{
+                if(action === 'use_rec') {{
+                    // 추천값 적용: 값을 세팅하고 저장 X (사용자가 확인 후 '다음' 누르게)
+                    let newVal = 0;
+                    if (recommendedWeight > 1) newVal = -1 * (Math.round(recommendedWeight) - 1);
+                    else if (recommendedWeight < 1) newVal = Math.round(1/recommendedWeight) - 1;
+                    
+                    // 범위 제한
+                    if(initialRanks[pairs[pairIdx].r] < initialRanks[pairs[pairIdx].c] && newVal > 0) newVal = 0;
+                    if(initialRanks[pairs[pairIdx].r] > initialRanks[pairs[pairIdx].c] && newVal < 0) newVal = 0;
+
+                    if (newVal < -4) newVal = -4; if (newVal > 4) newVal = 4;
+                    document.getElementById('slider').value = newVal;
+                    updateUI(); 
+                }} else {{
+                    // 기존 값 유지 (Keep) -> 바로 저장 후 다음
+                    saveAndNext();
+                }}
             }}
         }}
 
-        // [핵심] 순위 변경 버튼: 새로고침(reload)이 아니라 현재 작업을 다시 로드(loadTask)
         function resetTask() {{
-            if(confirm("현재 항목의 순위 설정 화면으로 돌아가시겠습니까?\\n(입력한 내용은 초기화됩니다)")) {{ 
+            if(confirm("순위 설정 화면으로 돌아가시겠습니까?\\n(현재 단계의 입력 내용은 초기화됩니다)")) {{ 
                 loadTask(); 
             }}
         }}
@@ -466,8 +555,10 @@ else:
                     file_path = f"survey_data/{secret_key}_{goal_clean}.csv"
                     save_dict = {"Time": datetime.now().strftime("%Y-%m-%d %H:%M"), "Respondent": respondent, "Raw_Data": code}
                     df = pd.DataFrame([save_dict])
-                    try: old_df = pd.read_csv(file_path)
-                    except: old_df = pd.DataFrame()
+                    try: 
+                        old_df = pd.read_csv(file_path)
+                    except: 
+                        old_df = pd.DataFrame()
                     pd.concat([old_df, df], ignore_index=True).to_csv(file_path, index=False)
                     st.success("✅ 제출 성공!"); st.balloons()
                 except: st.error("코드 오류")
