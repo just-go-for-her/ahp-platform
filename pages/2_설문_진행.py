@@ -200,7 +200,7 @@ else:
         const tasks = {js_tasks};
         let currentTaskIdx = 0, items = [], pairs = [], matrix = [], pairIdx = 0, initialRanks = [];
         let allAnswers = {{}};
-        let recommendedWeight = 1; // 추천값 저장
+        let recommendedWeight = 1; 
         const RI_TABLE = [0, 0, 0, 0.58, 0.90, 1.12, 1.24, 1.32, 1.41, 1.45, 1.49];
 
         function loadTask() {{
@@ -272,7 +272,6 @@ else:
             let val = parseInt(slider.value);
             const p = pairs[pairIdx];
 
-            // [경고] 순위가 낮은 쪽으로 슬라이더 이동 시
             if (initialRanks[p.r] < initialRanks[p.c] && val > 0) {{
                 alert(`🚫 [입력 제한] \\n\\n이미 '${{p.a}}' 항목을 상위 순위로 설정하셨습니다.\\n따라서 점수도 '${{p.a}}' 쪽(왼쪽)으로만 줄 수 있습니다.`);
                 slider.value = 0; val = 0;
@@ -341,7 +340,6 @@ else:
             fixedOrder.forEach(item => {{
                 let isFlipped = flippedIndices.has(item.idx);
                 let curRank = (pairIdx === 0) ? item.org : rankMap[item.idx];
-                
                 let borderStyle = isFlipped ? "2px solid #fa5252 !important" : "1px solid #dee2e6";
                 let bgStyle = isFlipped ? "#fff5f5 !important" : "white";
                 let textColorClass = isFlipped ? "error-text" : "match-text";
@@ -379,7 +377,6 @@ else:
             return weights.map(v => v / sum);
         }}
 
-        // [NEW] CR 계산
         function getCR(currentVal) {{
             const n = items.length;
             if (n <= 2) return 0;
@@ -391,7 +388,7 @@ else:
 
             tempMatrix[p.r][p.c] = w_final; tempMatrix[p.c][p.r] = 1 / w_final;
             
-            // 근사 CR 계산
+            for(let i=0; i<n; i++) {{ for(let j=0; j<n; j++) {{ if(tempMatrix[i][j] === 0) tempMatrix[i][j] = 1; }} }}
             let weights = tempMatrix.map(row => Math.pow(row.reduce((a, b) => a * b, 1), 1/n));
             let sum = weights.reduce((a, b) => a + b, 0);
             let normWeights = weights.map(v => v / sum);
@@ -407,7 +404,6 @@ else:
             return ci / ri;
         }}
 
-        // [NEW] AI 추천값 계산
         function getRecommendedWeight() {{
             const n = items.length; const p = pairs[pairIdx];
             let indirectVals = [];
@@ -456,7 +452,7 @@ else:
                 return; 
             }}
 
-            // 2. CR 체크 (NEW)
+            // 2. CR 체크
             if (pairIdx >= 2) {{
                 let cr = getCR(sliderVal);
                 if (cr > 0.1) {{
@@ -465,8 +461,8 @@ else:
                     
                     let txt = "동등 (1:1)";
                     const p = pairs[pairIdx];
-                    if (recW > 1) txt = `왼쪽(${ {p.a} }) ${ {Math.round(recW)} }배`;
-                    else if (recW < 1) txt = `오른쪽(${ {p.b} }) ${ {Math.round(1/recW)} }배`;
+                    if (recW > 1) txt = `왼쪽(${{p.a}}) ${{Math.round(recW)}}배`;
+                    else if (recW < 1) txt = `오른쪽(${{p.b}}) ${{Math.round(1/recW)}}배`;
                     
                     document.getElementById('rec-text').innerText = txt;
                     document.getElementById('modal-cr').style.display = 'flex';
@@ -480,20 +476,14 @@ else:
         function closeModal(type, action) {{
             document.getElementById('modal-' + type).style.display = 'none';
             if (type === 'flip') {{
-                if(action === 'updaterank') {{
-                    // 순위 변경 인정 시 -> 재계산 후 다음
-                    saveAndNext();
-                }} else {{
-                    document.getElementById('slider').value = 0; updateUI();
-                }}
+                if(action === 'updaterank') {{ saveAndNext(); }} 
+                else {{ document.getElementById('slider').value = 0; updateUI(); }}
             }} else if (type === 'cr') {{
                 if(action === 'use_rec') {{
-                    // 추천값 적용: 값을 세팅하고 저장 X (사용자가 확인 후 '다음' 누르게)
                     let newVal = 0;
                     if (recommendedWeight > 1) newVal = -1 * (Math.round(recommendedWeight) - 1);
                     else if (recommendedWeight < 1) newVal = Math.round(1/recommendedWeight) - 1;
                     
-                    // 범위 제한
                     if(initialRanks[pairs[pairIdx].r] < initialRanks[pairs[pairIdx].c] && newVal > 0) newVal = 0;
                     if(initialRanks[pairs[pairIdx].r] > initialRanks[pairs[pairIdx].c] && newVal < 0) newVal = 0;
 
@@ -501,7 +491,6 @@ else:
                     document.getElementById('slider').value = newVal;
                     updateUI(); 
                 }} else {{
-                    // 기존 값 유지 (Keep) -> 바로 저장 후 다음
                     saveAndNext();
                 }}
             }}
