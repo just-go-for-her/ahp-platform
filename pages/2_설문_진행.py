@@ -87,7 +87,7 @@ else:
             transition: all 0.3s ease;
         }}
         
-        /* 붉은 테두리 (역전 시 적용) */
+        /* [디자인 개선] 붉은 테두리: 2px, 부드러운 그림자 */
         .flipped-card {{
             border: 2px solid #fa5252 !important;
             background-color: #fff5f5 !important;
@@ -109,9 +109,10 @@ else:
         .btn {{ width: 100%; padding: 15px; background: #228be6; color: white; border: none; border-radius: 10px; font-size: 1.1em; font-weight: bold; cursor: pointer; }}
         .btn-secondary {{ background: #adb5bd; }} /* 기본 회색 */
         
-        /* 순위 재설정 버튼: 짙은 회색 */
+        /* [수정됨] 순위 변경 버튼: 짙은 회색으로 변경 */
         .btn-reset {{ background: #495057; color: white; }} 
         
+        /* 버튼 그리드: 2칸 나란히 */
         .btn-grid {{ display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-top: 20px; }}
 
         .modal {{ display: none; position: fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.7); justify-content:center; align-items:center; z-index:9999; }}
@@ -231,13 +232,16 @@ else:
             document.getElementById('hint-b').innerText = initialRanks[p.c];
             document.getElementById('slider').value = 0;
             
+            // [버튼 배치]
             const btnArea = document.getElementById('btn-area');
             if (pairIdx === 0) {{
+                // 첫 질문: [순위 재설정(회색)] [다음]
                 btnArea.innerHTML = `
                     <button class="btn btn-reset" onclick="resetTask()">🔄 순위 변경</button>
                     <button class="btn" onclick="checkLogic()">다음 질문 ➡</button>
                 `;
             }} else {{
+                // 이후: [이전] [다음]
                 btnArea.innerHTML = `
                     <button class="btn btn-secondary" onclick="goBack()">⬅ 이전 질문</button>
                     <button class="btn" onclick="checkLogic()">다음 질문 ➡</button>
@@ -252,22 +256,6 @@ else:
             const slider = document.getElementById('slider');
             let val = parseInt(slider.value);
             const p = pairs[pairIdx];
-
-            // [추가된 로직] 순위 역전 방향 차단 (Alert & Reset)
-            // A(p.r)가 B(p.c)보다 순위가 높음(숫자가 작음) -> val은 음수(왼쪽)여야 함
-            if (initialRanks[p.r] < initialRanks[p.c]) {{ 
-                if (val > 0) {{ // 오른쪽(B 우세)으로 가면 차단
-                    alert("설정된 순위(" + p.a + " > " + p.b + ")에 따라 왼쪽(A 우세) 방향으로만 선택 가능합니다.");
-                    slider.value = 0; val = 0;
-                }}
-            }}
-            // B(p.c)가 A(p.r)보다 순위가 높음(숫자가 작음) -> val은 양수(오른쪽)여야 함
-            else if (initialRanks[p.r] > initialRanks[p.c]) {{
-                if (val < 0) {{ // 왼쪽(A 우세)으로 가면 차단
-                    alert("설정된 순위(" + p.b + " > " + p.a + ")에 따라 오른쪽(B 우세) 방향으로만 선택 가능합니다.");
-                    slider.value = 0; val = 0;
-                }}
-            }}
 
             const disp = document.getElementById('val-display');
             let perc = (val + 4) * 12.5;
@@ -290,7 +278,6 @@ else:
             let weights = calculateWeights();
             const EPSILON = 0.00001;
 
-            // 순위 계산 (보여주기용)
             let indexedWeights = weights.map((w, i) => ({{w, i}}));
             indexedWeights.sort((a,b) => b.w - a.w);
             let rankMap = {{}};
@@ -302,7 +289,7 @@ else:
 
             let flippedIndices = new Set();
             
-            // [수정] 2번째 질문부터만 역전 감지 (첫 질문은 데이터 부족으로 감지 X)
+            // [핵심] 첫 질문(pairIdx === 0)에서는 역전 감지 로직 SKIP
             if (pairIdx > 0) {{
                 for(let i=0; i<items.length; i++) {{
                     for(let j=0; j<items.length; j++) {{
@@ -330,9 +317,9 @@ else:
 
             fixedOrder.forEach(item => {{
                 let isFlipped = flippedIndices.has(item.idx);
-                // [수정] 첫 질문일 땐 무조건 기존 순위로 표시 (울렁임 방지)
-                let curRank = (pairIdx === 0) ? item.org : rankMap[item.idx];
+                let curRank = rankMap[item.idx];
                 
+                // [디자인] 2px 테두리 + 부드러운 그림자
                 let borderStyle = isFlipped ? "2px solid #fa5252 !important" : "1px solid #dee2e6";
                 let bgStyle = isFlipped ? "#fff5f5 !important" : "white";
                 let textColorClass = isFlipped ? "error-text" : "match-text";
@@ -469,8 +456,14 @@ else:
                     secret_key = survey_data.get("secret_key", "public")
                     if not os.path.exists("survey_data"): os.makedirs("survey_data")
                     file_path = f"survey_data/{secret_key}_{goal_clean}.csv"
+                    # 문법 오류 수정 완료: 세미콜론 제거 및 줄바꿈
                     save_dict = {"Time": datetime.now().strftime("%Y-%m-%d %H:%M"), "Respondent": respondent, "Raw_Data": code}
-                    df = pd.DataFrame([save_dict]); try: old_df = pd.read_csv(file_path); except: old_df = pd.DataFrame()
+                    df = pd.DataFrame([save_dict])
+                    try:
+                        old_df = pd.read_csv(file_path)
+                    except:
+                        old_df = pd.DataFrame()
                     pd.concat([old_df, df], ignore_index=True).to_csv(file_path, index=False)
-                    st.success("✅ 제출 성공!"); st.balloons()
+                    st.success("✅ 제출 성공!")
+                    st.balloons()
                 except: st.error("코드 오류")
