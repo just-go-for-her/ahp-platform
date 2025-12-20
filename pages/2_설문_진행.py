@@ -178,7 +178,7 @@ else:
         const tasks = {js_tasks};
         let currentTaskIdx = 0, items = [], pairs = [], matrix = [], pairIdx = 0, initialRanks = [];
         let allAnswers = {{}};
-        let currentPairSwapped = false; // 화면 반전 여부
+        let currentPairSwapped = false; 
 
         function loadTask() {{
             if (currentTaskIdx >= tasks.length) {{ finishAll(); return; }}
@@ -222,13 +222,27 @@ else:
         function renderPair() {{
             const p = pairs[pairIdx];
             
-            // [핵심 수정] calculateWeights(0)으로 호출하여 슬라이더 값 0으로 가정하고 순위 계산
-            // 이렇게 해야 이전 질문의 슬라이더 값 영향을 받지 않고 정확한 현재 승자를 판별함
-            let weights = calculateWeights(0); 
+            // [1. 순서 결정 (Winner Stays Left)]
+            // 순위 계산 시 '현재 매트릭스'를 기준으로 하되, 현재 질문의 값은 아직 모르므로 제외해야 함.
+            // 하지만 연속성을 위해 이전 값을 유지하거나, 0으로 가정.
+            // 여기서는 '저장된 값'이 있으면 그걸 쓰고, 아니면 0을 써서 계산.
+            
+            // 기존에 저장된 값 불러오기 (Back 했을 때 중요)
+            let savedWeight = matrix[p.r][p.c];
+            let initialSliderVal = 0;
+            
+            if (savedWeight !== 0 && savedWeight !== 1) {{
+                // weight -> slider value 변환
+                if (savedWeight > 1) initialSliderVal = -(Math.round(savedWeight) - 1); // A 우세(왼쪽)
+                else initialSliderVal = Math.round(1/savedWeight) - 1; // B 우세(오른쪽)
+            }}
+
+            // 현재 가중치 계산 (saved 값 기준)
+            let weights = calculateWeights(initialSliderVal); 
             const EPSILON = 0.00001;
             
-            // Winner Stays Left 로직
             currentPairSwapped = false;
+            // B의 점수가 더 높으면 화면 스왑
             if (pairIdx > 0 && weights[p.c] > weights[p.r] + EPSILON) {{
                 currentPairSwapped = true;
             }}
@@ -242,7 +256,11 @@ else:
             document.getElementById('item-b').innerText = rightName;
             document.getElementById('hint-a').innerText = leftRankHint;
             document.getElementById('hint-b').innerText = rightRankHint;
-            document.getElementById('slider').value = 0;
+            
+            // [2. 슬라이더 값 복구]
+            // 화면이 스왑되었다면, 슬라이더 값의 부호도 반대로 보여줘야 함
+            let displayVal = currentPairSwapped ? (initialSliderVal * -1) : initialSliderVal;
+            document.getElementById('slider').value = displayVal;
             
             const btnArea = document.getElementById('btn-area');
             if (pairIdx === 0) {{
@@ -266,17 +284,18 @@ else:
             let val = parseInt(slider.value);
             let leftName = document.getElementById('item-a').innerText;
 
-            // [핵심] 승자가 왼쪽에 있으므로, 오른쪽(양수) 이동은 무조건 차단
-            // 단, 첫 질문은 아직 데이터가 없으므로 자유 이동 (기존 순위 왼쪽)
-            if (pairIdx > 0 && checkAlert && val > 0) {{
-                alert(`🚫 [논리 보호]\\n\\n현재 데이터 상 '${{leftName}}' 항목이 더 중요합니다.\\n따라서 점수도 '${{leftName}}' 쪽(왼쪽)으로만 줄 수 있습니다.`);
-                slider.value = 0; val = 0;
-            }}
-            
-            // 첫 질문일 때도 초기 설정 순위에 위배되면 차단 (초기: A(왼쪽) > B(오른쪽))
-            if (pairIdx === 0 && checkAlert && val > 0) {{
-                 alert(`🚫 [논리 보호]\\n\\n설정하신 순위에 따라 '${{leftName}}' 항목이 더 중요합니다.\\n따라서 점수도 '${{leftName}}' 쪽(왼쪽)으로만 줄 수 있습니다.`);
-                 slider.value = 0; val = 0;
+            // [경고 로직] 승자가 왼쪽이므로 오른쪽(양수) 이동 차단
+            if (checkAlert && val > 0) {{
+                // 첫 질문이거나 아직 데이터가 부족할 땐, '초기 설정 순위'를 기준으로 판단
+                if (pairIdx === 0) {{
+                     // 초기 설정상 왼쪽이 상위라면 차단
+                     // (renderPair에서 이미 상위가 왼쪽으로 오게 배치했음. 따라서 무조건 오른쪽 차단이 맞음)
+                     alert(`🚫 [논리 보호]\\n\\n설정하신 순위에 따라 '${{leftName}}' 항목이 더 중요합니다.\\n따라서 점수도 '${{leftName}}' 쪽(왼쪽)으로만 줄 수 있습니다.`);
+                     slider.value = 0; val = 0;
+                }} else {{
+                    alert(`🚫 [논리 보호]\\n\\n현재 데이터 상 '${{leftName}}' 항목이 더 중요합니다.\\n따라서 점수도 '${{leftName}}' 쪽(왼쪽)으로만 줄 수 있습니다.`);
+                    slider.value = 0; val = 0;
+                }}
             }}
 
             const disp = document.getElementById('val-display');
@@ -299,7 +318,8 @@ else:
             grid.innerHTML = "";
             const pill = document.getElementById('status-pill');
             
-            let weights = calculateWeights(0); // 보드 그릴 때도 0 기준
+            // [핵심] 현재 슬라이더 값을 반영하여 순위 계산 (그래야 실시간 반응)
+            let weights = calculateWeights(); 
             const EPSILON = 0.00001;
 
             let indexedWeights = weights.map((w, i) => ({{w, i}}));
@@ -364,17 +384,15 @@ else:
             let tempMatrix = matrix.map(row => [...row]);
             let p = pairs[pairIdx];
             
-            // tempVal이 0이면 무조건 0(1배) 사용 (화면 초기화용)
-            // tempVal이 null이면 슬라이더 값 사용 (사용자 입력용)
-            let rawVal = tempVal !== null ? tempVal : parseInt(document.getElementById('slider').value);
+            let val = tempVal !== null ? tempVal : parseInt(document.getElementById('slider').value);
             
-            // 만약 화면이 스왑된 상태라면 입력값 부호 반전하여 저장
+            // [중요] 화면이 스왑된 상태라면, 입력값의 부호를 반대로 해석하여 계산
             if (currentPairSwapped && tempVal === null) {{
-                rawVal = rawVal * -1;
+                val = val * -1;
             }}
 
-            let w_abs = Math.abs(rawVal) + 1;
-            let w_final = (rawVal <= 0) ? w_abs : (1 / w_abs);
+            let w_abs = Math.abs(val) + 1;
+            let w_final = (val <= 0) ? w_abs : (1 / w_abs);
 
             tempMatrix[p.r][p.c] = w_final; 
             tempMatrix[p.c][p.r] = 1 / w_final;
@@ -389,8 +407,7 @@ else:
             if (pairIdx === 0) {{ saveAndNext(); return; }}
             const sliderVal = parseInt(document.getElementById('slider').value);
             
-            // 저장 전 최종 확인용 계산 (슬라이더 값 사용)
-            let weights = calculateWeights(sliderVal); 
+            let weights = calculateWeights(sliderVal);
             const EPSILON = 0.00001;
             let indexedWeights = weights.map((w, i) => ({{w, i}})).sort((a,b) => {{
                 if (Math.abs(b.w - a.w) > EPSILON) return b.w - a.w;
@@ -426,9 +443,7 @@ else:
             document.getElementById('modal-' + type).style.display = 'none';
             if (type === 'flip') {{
                 if(action === 'updaterank') {{
-                    // 업데이트 시 슬라이더 값 사용하여 가중치 계산 후 순위 재정렬
-                    let val = parseInt(document.getElementById('slider').value);
-                    let weights = calculateWeights(val);
+                    let weights = calculateWeights();
                     let sortedIdx = weights.map((w, i) => i).sort((a, b) => weights[b] - weights[a]);
                     sortedIdx.forEach((idx, i) => {{ initialRanks[idx] = i + 1; }});
                     saveAndNext();
@@ -450,7 +465,7 @@ else:
             const slider = document.getElementById('slider');
             let val = parseInt(slider.value);
             
-            // 저장할 때는 화면 스왑 여부에 따라 부호 반전
+            // 저장 시 화면 스왑 보정
             if (currentPairSwapped) {{
                 val = val * -1;
             }}
@@ -461,7 +476,6 @@ else:
             const p = pairs[pairIdx];
             matrix[p.r][p.c] = w_final; matrix[p.c][p.r] = 1/w_final;
             
-            // 텍스트 저장 (분석용 - 원래 pair 기준)
             allAnswers[`[${{tasks[currentTaskIdx].name}}] ${{p.a}} vs ${{p.b}}`] = w_final.toFixed(2);
             
             pairIdx++;
