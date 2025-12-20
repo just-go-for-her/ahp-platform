@@ -80,12 +80,11 @@ else:
         .board-title {{ font-weight: bold; color: #495057; font-size: 0.9em; margin-bottom: 12px; display: flex; justify-content: space-between; }}
         .board-grid {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); gap: 10px; }}
         .board-item {{ background: white; padding: 12px; border-radius: 8px; text-align: center; font-size: 0.85em; border: 1px solid #dee2e6; }}
-        .rank-badge {{ display: inline-block; padding: 2px 8px; border-radius: 10px; font-weight: bold; margin-bottom: 4px; }}
         .card {{ background: #fff; padding: 25px; border-radius: 12px; text-align: center; margin-bottom: 20px; border: 1px solid #e9ecef; box-shadow: 0 2px 8px rgba(0,0,0,0.02); }}
         input[type=range] {{ width: 100%; margin: 25px 0; cursor: pointer; }}
         .btn {{ width: 100%; padding: 15px; background: #228be6; color: white; border: none; border-radius: 8px; font-size: 1.05em; font-weight: bold; cursor: pointer; }}
         .modal {{ display: none; position: fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.7); justify-content:center; align-items:center; z-index:9999; }}
-        .modal-box {{ background:white; padding:30px; border-radius:15px; width:85%; max-width:450px; text-align:center; box-shadow: 0 10px 25px rgba(0,0,0,0.2); }}
+        .modal-box {{ background:white; padding:30px; border-radius:15px; width:85%; max-width:450px; text-align:center; }}
     </style>
     </head>
     <body>
@@ -94,7 +93,7 @@ else:
 
         <div id="live-board" class="ranking-board" style="display:none;">
             <div class="board-title">
-                <span>📊 실시간 논리 현황</span>
+                <span>📊 실시간 순위 현황</span>
                 <span id="logic-status">진행 중...</span>
             </div>
             <div id="board-grid" class="board-grid"></div>
@@ -132,10 +131,10 @@ else:
         <div class="modal-box">
             <h3 style="color:#e03131; margin-top:0;">⚠️ 순위 역전 감지</h3>
             <p style="font-size:0.95em; color:#495057; line-height:1.6; text-align:left;">
-                현재 응답은 처음 설정한 기대 순위와 상충합니다.
+                현재 응답을 적용하면 처음 설정한 기대 순위와 실제 순위가 달라집니다.
             </p>
             <div style="display:grid; gap:10px; margin-top:20px;">
-                <button class="btn" onclick="closeModal('resurvey')" style="background:#228be6;">📍 다시 설문 (순위 유지)</button>
+                <button class="btn" onclick="closeModal('resurvey')" style="background:#228be6;">📍 다시 설문 (기존 순위 유지)</button>
                 <button class="btn" onclick="closeModal('updaterank')" style="background:#868e96;">🔄 순위 변경 (현재 응답 인정)</button>
             </div>
         </div>
@@ -155,7 +154,7 @@ else:
             for(let i=1; i<=items.length; i++) options += `<option value="${{i}}">${{i}}위</option>`;
             items.forEach((item, idx) => {{
                 listDiv.innerHTML += `<div style="display:flex; justify-content:space-between; padding:12px; background:#f8f9fa; border-radius:8px; margin-bottom:8px; align-items:center; border:1px solid #eee;">
-                    <span style="font-weight:bold;">${{item}}</span><select id="rank-${{idx}}" style="padding:6px; border-radius:4px;">${{options}}</select></div>`;
+                    <span style="font-weight:bold; color:#495057;">${{item}}</span><select id="rank-${{idx}}" style="padding:6px; border-radius:4px;">${{options}}</select></div>`;
             }});
             showStep('step-ranking'); document.getElementById('live-board').style.display = 'none';
         }}
@@ -198,10 +197,8 @@ else:
             const grid = document.getElementById('board-grid'); grid.innerHTML = "";
             const status = document.getElementById('logic-status');
             
-            // [핵심] 첫 번째 질문일 때는 보드에 순위를 표시하지 않음 (기준점 설정 중)
             if (pairIdx === 0 && !finalCheck) {{
-                status.innerText = "📍 기준점 설정 중...";
-                status.style.color = "#495057";
+                status.innerText = "📍 기준점 설정 중..."; status.style.color = "#495057";
                 items.forEach((item, i) => {{
                     grid.innerHTML += `<div class="board-item" style="opacity: 0.5;">
                         <div style="font-weight:bold; color:#868e96;">${{item}}</div>
@@ -212,7 +209,6 @@ else:
                 return;
             }}
 
-            // 두 번째 질문부터 가중치 계산
             let weights = calculateWeights();
             let sortedIdx = weights.map((w, i) => i).sort((a, b) => weights[b] - weights[a]);
             let currentRanks = new Array(items.length);
@@ -228,7 +224,6 @@ else:
                     <div style="font-size:0.85em; font-weight:bold; color:${{match?'#2f9e44':'#e03131'}};">현재: ${{currentRanks[i]}}위</div>
                 </div>`;
             }});
-            
             status.innerText = isMismatched ? "⚠️ 순위 불일치 상태" : "✅ 순위 일치 상태";
             status.style.color = isMismatched ? "#e03131" : "#2f9e44";
         }}
@@ -240,8 +235,6 @@ else:
             const p = pairs[pairIdx];
             const w = val === 0 ? 1 : (val < 0 ? Math.abs(val)+1 : 1/(val+1));
             tempMatrix[p.r][p.c] = w; tempMatrix[p.c][p.r] = 1/w;
-            
-            // 아직 답변 안 한 부분은 1로 채워 현재 입력값의 영향만 측정
             for(let i=0; i<n; i++) {{
                 for(let j=0; j<n; j++) {{
                     if(tempMatrix[i][j] === 0) tempMatrix[i][j] = 1;
@@ -257,13 +250,11 @@ else:
             const p = pairs[pairIdx];
             const rankA = initialRanks[p.r]; const rankB = initialRanks[p.c];
             
-            // [핵심] 첫 번째 질문은 무조건 통과 (순위 역전 판단 불가)
             if (pairIdx === 0) {{
                 saveAndNext();
                 return;
-            }
+            }}
 
-            // 두 번째 질문부터 직접적인 순위 역전(기대 순위와 반대 방향 선택) 체크
             if ((rankA < rankB && sliderVal > 0) || (rankA > rankB && sliderVal < 0)) {{
                 document.getElementById('modal').style.display = 'flex';
                 return;
@@ -274,7 +265,6 @@ else:
         function closeModal(action) {{
             document.getElementById('modal').style.display = 'none';
             if(action === 'updaterank') {{
-                // 현재 응답에 맞춰 기대 순위 자체를 재설정 (응답자의 변심 인정)
                 let weights = calculateWeights();
                 let sortedIdx = weights.map((w, i) => i).sort((a, b) => weights[b] - weights[a]);
                 sortedIdx.forEach((idx, i) => initialRanks[idx] = i + 1);
@@ -318,7 +308,7 @@ else:
         code = st.text_area("결과 코드 붙여넣기")
         if st.form_submit_button("최종 제출하기", type="primary", use_container_width=True):
             if not respondent or not code:
-                st.warning("이름과 코드를 모두 입력해주세요.")
+                st.warning("성함과 코드를 모두 입력해주세요.")
             else:
                 try:
                     json.loads(code)
