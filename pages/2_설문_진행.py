@@ -31,7 +31,8 @@ if survey_id:
             survey_data = json.load(f)
         is_respondent = True
     else:
-        st.error("유효하지 않은 링크입니다."); st.stop()
+        st.error("유효하지 않은 링크입니다.")
+        st.stop()
 else:
     is_respondent = False
     survey_data = st.session_state.get("passed_structure", None)
@@ -39,7 +40,8 @@ else:
 if not is_respondent:
     st.title("📢 설문 배포 센터")
     if not survey_data:
-        st.warning("⚠️ [1번 페이지]에서 구조를 먼저 확정하세요."); st.stop()
+        st.warning("⚠️ [1번 페이지]에서 구조를 먼저 확정하세요.")
+        st.stop()
     project_key = st.text_input("프로젝트 비밀번호(Key) 설정", type="password")
     if st.button("🔗 공유 링크 생성하기", type="primary", use_container_width=True):
         if not project_key: st.error("비밀번호 설정이 필요합니다.")
@@ -75,6 +77,8 @@ else:
         /* 랭킹 보드 스타일 */
         .ranking-board {{ background: #f1f3f5; padding: 18px; border-radius: 12px; margin-bottom: 25px; border: 1px solid #dee2e6; }}
         .board-title {{ font-weight: bold; color: #495057; font-size: 0.9em; margin-bottom: 15px; display: flex; justify-content: space-between; align-items: center; }}
+        .status-pill {{ padding: 4px 12px; border-radius: 20px; font-size: 0.82em; font-weight: bold; }}
+        
         .board-grid {{ display: flex; gap: 10px; overflow-x: auto; padding-bottom: 10px; }}
         
         .board-item {{ 
@@ -85,10 +89,7 @@ else:
             transition: all 0.3s ease;
         }}
         
-        /* [수정됨] 붉은 테두리 디자인 개선 
-           - 두께 3px -> 2px
-           - 그림자 부드럽게
-        */
+        /* [수정됨] 붉은 테두리 디자인 개선 */
         .flipped-card {{
             border: 2px solid #fa5252 !important;
             background-color: #fff5f5 !important;
@@ -110,8 +111,8 @@ else:
         .btn {{ width: 100%; padding: 15px; background: #228be6; color: white; border: none; border-radius: 10px; font-size: 1.1em; font-weight: bold; cursor: pointer; }}
         .btn-secondary {{ background: #adb5bd; }} /* 기본 회색 */
         
-        /* [수정됨] 순위 변경 버튼: 붉은색 -> 짙은 회색 */
-        .btn-reset {{ background: #495057; color: white; }} 
+        /* [수정됨] 순위 변경 버튼: 회색으로 변경 */
+        .btn-reset {{ background: #868e96; color: white; }} 
         
         /* 버튼 그리드: 2칸 나란히 */
         .btn-grid {{ display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-top: 20px; }}
@@ -233,14 +234,16 @@ else:
             document.getElementById('hint-b').innerText = initialRanks[p.c];
             document.getElementById('slider').value = 0;
             
+            // [수정] 버튼 텍스트 및 색상
             const btnArea = document.getElementById('btn-area');
             if (pairIdx === 0) {{
-                // [수정] 순위 재설정 버튼 색상 변경 (.btn-reset -> 회색)
+                // 첫 질문: [순위 재설정(회색)] [다음]
                 btnArea.innerHTML = `
-                    <button class="btn btn-reset" onclick="resetTask()">🔄 순위 재설정</button>
+                    <button class="btn btn-reset" onclick="resetTask()">🔄 순위 변경</button>
                     <button class="btn" onclick="checkLogic()">다음 질문 ➡</button>
                 `;
             }} else {{
+                // 이후: [이전] [다음]
                 btnArea.innerHTML = `
                     <button class="btn btn-secondary" onclick="goBack()">⬅ 이전 질문</button>
                     <button class="btn" onclick="checkLogic()">다음 질문 ➡</button>
@@ -288,7 +291,7 @@ else:
 
             let flippedIndices = new Set();
             
-            // [수정] 첫 번째 질문(pairIdx === 0)에서는 역전 감지 로직 건너뜀
+            // [수정] 첫 번째 질문(pairIdx === 0)에서는 역전 감지 로직 건너뜀 (붉은색 안 뜨게)
             if (pairIdx > 0) {{
                 for(let i=0; i<items.length; i++) {{
                     for(let j=0; j<items.length; j++) {{
@@ -303,6 +306,7 @@ else:
 
             let hasFlip = (flippedIndices.size > 0);
             
+            // 상태 메시지 처리
             if (pairIdx === 0) {{
                 pill.innerText = "✅ 순위 설정 완료"; pill.style.background = "#ebfbee"; pill.style.color = "#2f9e44";
             }} else if (hasFlip) {{
