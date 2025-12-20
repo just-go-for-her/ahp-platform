@@ -89,7 +89,7 @@ else:
             transition: all 0.3s ease;
         }}
         
-        /* [수정됨] 붉은 테두리 디자인 개선 */
+        /* [디자인 개선] 붉은 테두리: 2px, 부드러운 그림자 */
         .flipped-card {{
             border: 2px solid #fa5252 !important;
             background-color: #fff5f5 !important;
@@ -111,8 +111,8 @@ else:
         .btn {{ width: 100%; padding: 15px; background: #228be6; color: white; border: none; border-radius: 10px; font-size: 1.1em; font-weight: bold; cursor: pointer; }}
         .btn-secondary {{ background: #adb5bd; }} /* 기본 회색 */
         
-        /* [수정됨] 순위 변경 버튼: 회색으로 변경 */
-        .btn-reset {{ background: #868e96; color: white; }} 
+        /* [수정됨] 순위 변경 버튼: 짙은 회색으로 변경 */
+        .btn-reset {{ background: #495057; color: white; }} 
         
         /* 버튼 그리드: 2칸 나란히 */
         .btn-grid {{ display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-top: 20px; }}
@@ -234,7 +234,7 @@ else:
             document.getElementById('hint-b').innerText = initialRanks[p.c];
             document.getElementById('slider').value = 0;
             
-            // [수정] 버튼 텍스트 및 색상
+            // [버튼 배치]
             const btnArea = document.getElementById('btn-area');
             if (pairIdx === 0) {{
                 // 첫 질문: [순위 재설정(회색)] [다음]
@@ -291,7 +291,7 @@ else:
 
             let flippedIndices = new Set();
             
-            // [수정] 첫 번째 질문(pairIdx === 0)에서는 역전 감지 로직 건너뜀 (붉은색 안 뜨게)
+            // [핵심] 첫 질문(pairIdx === 0)에서는 역전 감지 로직 SKIP
             if (pairIdx > 0) {{
                 for(let i=0; i<items.length; i++) {{
                     for(let j=0; j<items.length; j++) {{
@@ -306,7 +306,6 @@ else:
 
             let hasFlip = (flippedIndices.size > 0);
             
-            // 상태 메시지 처리
             if (pairIdx === 0) {{
                 pill.innerText = "✅ 순위 설정 완료"; pill.style.background = "#ebfbee"; pill.style.color = "#2f9e44";
             }} else if (hasFlip) {{
@@ -322,13 +321,15 @@ else:
                 let isFlipped = flippedIndices.has(item.idx);
                 let curRank = rankMap[item.idx];
                 
-                // [디자인 개선] 테두리 두께 2px로 축소, 인라인 스타일
+                // [디자인] 2px 테두리 + 부드러운 그림자
                 let borderStyle = isFlipped ? "2px solid #fa5252 !important" : "1px solid #dee2e6";
                 let bgStyle = isFlipped ? "#fff5f5 !important" : "white";
                 let textColorClass = isFlipped ? "error-text" : "match-text";
+                // 그림자 추가
+                let shadow = isFlipped ? "box-shadow: 0 4px 12px rgba(250, 82, 82, 0.15);" : "";
 
                 grid.innerHTML += `
-                <div class="board-item" style="border: ${{borderStyle}}; background-color: ${{bgStyle}};">
+                <div class="board-item" style="border: ${{borderStyle}}; background-color: ${{bgStyle}}; ${{shadow}}">
                     <span class="item-name">${{item.name}}</span>
                     <div class="rank-row"><span>기존:</span><span class="rank-val">${{item.org}}위</span></div>
                     <div class="rank-row"><span>현재:</span><span class="rank-val ${{textColorClass}}">${{curRank}}위</span></div>
