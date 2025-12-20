@@ -42,14 +42,14 @@ if not is_respondent:
         st.warning("⚠️ [1번 페이지]에서 구조를 먼저 확정하세요."); st.stop()
     project_key = st.text_input("프로젝트 비밀번호(Key) 설정", type="password")
     if st.button("🔗 공유 링크 생성하기", type="primary", use_container_width=True):
-        if not project_key: st.error("비밀번호 설정 필요")
+        if not project_key: st.error("비밀번호 설정이 필요합니다.")
         else:
             full_structure = {**survey_data, "secret_key": project_key}
             survey_id = uuid.uuid4().hex[:8]
             with open(os.path.join(CONFIG_DIR, f"{survey_id}.json"), "w", encoding="utf-8") as f:
                 json.dump(full_structure, f, ensure_ascii=False, indent=2)
             st.code(f"{FULL_URL}?id={survey_id}")
-            st.success("링크 생성 완료!")
+            st.success("공유 링크가 생성되었습니다.")
 
 else:
     st.title(f"📝 {survey_data['goal']}")
@@ -82,7 +82,6 @@ else:
         .item-name {{ font-weight: 800; color: #343a40; border-bottom: 1px solid #f1f3f5; padding-bottom: 6px; }}
         .rank-row {{ display: flex; justify-content: space-between; align-items: center; font-size: 0.85em; color: #666; padding: 0 2px; }}
         .rank-val {{ font-weight: bold; color: #444; }}
-        
         .error-color {{ color: #fa5252 !important; text-decoration: underline; font-weight: 800; }}
         .match-color {{ color: #228be6; }}
 
@@ -112,7 +111,7 @@ else:
         </div>
 
         <div id="step-ranking" class="step">
-            <p><b>1단계:</b> 각 항목의 중요도 순위를 정해주세요.</p>
+            <p><b>1단계:</b> 각 항목의 중요도 순위를 먼저 정해주세요.</p>
             <div id="ranking-list" style="margin-bottom:20px;"></div>
             <button class="btn" onclick="startCompare()">설문 시작하기</button>
         </div>
@@ -152,7 +151,7 @@ else:
                 현재 응답을 적용하면 기존에 설정한 순서가 완전히 뒤바뀌게 됩니다.<br><b>변경된 의사를 인정</b>하시겠습니까, 아니면 <b>응답을 수정</b>하시겠습니까?
             </p>
             <div style="display:grid; gap:12px;">
-                <button class="btn" onclick="closeModal('resurvey')" style="background:#228be6;">👈 현재 응답 수정 (원래 의도 유지)</button>
+                <button class="btn" onclick="closeModal('resurvey')" style="background:#228be6;">👈 현재 답변 수정 (기존 순위 유지)</button>
                 <button class="btn" onclick="closeModal('updaterank')" style="background:#868e96;">✅ 바뀐 순위 인정 (설정값 업데이트)</button>
             </div>
         </div>
@@ -219,9 +218,9 @@ else:
             let val = parseInt(slider.value);
             const p = pairs[pairIdx];
 
-            // [사용자 요청 1] 조작 실수 차단 - 오른쪽 이동 불가 안내
+            // [조작 실수 차단] 오른쪽 방향으로 이동 시 즉시 경고 및 리셋
             if (val > 0) {{
-                alert(`안내: 현재 [${{p.a}}] 항목의 기존 순위가 더 높습니다.\\n논리적 일관성을 위해 왼쪽(A 우세) 방향으로만 응답해 주세요.`);
+                alert(`안내: 현재 [${{p.a}}] 항목이 상위 순위입니다.\\n논리적 일관성을 위해 왼쪽(A 우세) 방향으로만 응답해 주세요.`);
                 slider.value = 0; val = 0;
             }}
 
@@ -247,12 +246,9 @@ else:
             let fixedOrder = items.map((name, i) => ({{name, org: initialRanks[i], idx: i}}))
                                   .sort((a,b) => a.org - b.org);
 
-            let hasFlip = false; // 단순 공동 순위가 아닌 '역전'만 체크
+            let hasFlip = false;
             fixedOrder.forEach(item => {{
                 const cur = currentRanks[item.idx];
-                
-                // [사용자 요청 2] 순위 역전(Flip) 판별 로직 정교화
-                // 기존 B(2위) > C(3위) 였는데 결과가 C(1위) > B(2위) 처럼 바뀌는 상황만 오류
                 let isFlip = false;
                 for(let k=0; k<items.length; k++) {{
                     if(initialRanks[item.idx] < initialRanks[k] && currentRanks[item.idx] > currentRanks[k]) isFlip = true;
@@ -291,7 +287,6 @@ else:
             let currentRanks = new Array(items.length);
             sortedIdx.forEach((idx, i) => currentRanks[idx] = i + 1);
 
-            // [핵심] 공동 순위(Tie)는 허용하고, 오직 순서가 뒤집히는 경우만 모달 오픈
             let flipped = false;
             for(let i=0; i<items.length; i++) {{
                 for(let j=0; j<items.length; j++) {{
@@ -349,9 +344,9 @@ else:
     components.html(html_code, height=850, scrolling=True)
 
     st.divider()
-    with st.form("save_logic_v3"):
+    with st.form("save_logic_final"):
         respondent = st.text_input("응답자 성함")
-        code = st.text_area("결과 코드를 붙여넣으세요")
+        code = st.text_area("결과 코드를 복사해서 붙여넣으세요")
         if st.form_submit_button("최종 제출", type="primary"):
             if respondent and code:
                 try:
@@ -360,8 +355,9 @@ else:
                     secret_key = survey_data.get("secret_key", "public")
                     if not os.path.exists("survey_data"): os.makedirs("survey_data")
                     file_path = f"survey_data/{{secret_key}}_{{goal_clean}}.csv"
-                    save_dict = { "Time": datetime.now().strftime("%Y-%m-%d %H:%M"), "Respondent": respondent, "Raw_Data": code }
+                    # 파이썬 저장 딕셔너리 기호 처리
+                    save_dict = {{ "Time": datetime.now().strftime("%Y-%m-%d %H:%M"), "Respondent": respondent, "Raw_Data": code }}
                     df = pd.DataFrame([save_dict]); try: old_df = pd.read_csv(file_path); except: old_df = pd.DataFrame()
                     pd.concat([old_df, df], ignore_index=True).to_csv(file_path, index=False)
-                    st.success("✅ 제출 성공!"); st.balloons()
-                except: st.error("코드 오류")
+                    st.success("✅ 설문이 성공적으로 제출되었습니다!"); st.balloons()
+                except: st.error("코드 형식이 올바르지 않습니다.")
