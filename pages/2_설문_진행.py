@@ -14,117 +14,52 @@ import uuid
 FULL_URL = "https://ahp-platform-bbee45epwqjjy2zfpccz7p.streamlit.app/%EC%84%A4%EB%AC%B8_%EC%A7%84%ED%96%89"
 # ==============================================================================
 
-# 설문 구조(연구자용) 저장 디렉토리
 CONFIG_DIR = "survey_config"
 os.makedirs(CONFIG_DIR, exist_ok=True)
 
 st.set_page_config(page_title="설문 진행", page_icon="📝", layout="wide")
 
-# 1. URL 데이터 처리
 query_params = st.query_params
 raw_id = query_params.get("id", None)
-if isinstance(raw_id, list):
-    survey_id = raw_id[0] if raw_id else None
-else:
-    survey_id = raw_id
+if isinstance(raw_id, list): survey_id = raw_id[0] if raw_id else None
+else: survey_id = raw_id
 
 survey_data = None
 
-# ------------------------------------------------------------------
-# [MODE B] 응답자 모드: id 로 설문 구조 불러오기
-# ------------------------------------------------------------------
 if survey_id:
     config_path = os.path.join(CONFIG_DIR, f"{survey_id}.json")
-    if not os.path.exists(config_path):
-        st.error("유효하지 않은 설문 링크입니다. (설문 ID를 찾을 수 없습니다)")
-        st.stop()
-
-    try:
+    if os.path.exists(config_path):
         with open(config_path, "r", encoding="utf-8") as f:
             survey_data = json.load(f)
         is_respondent = True
-    except Exception as e:
-        st.error(f"설문 구성을 불러오는 중 오류가 발생했습니다: {e}")
-        st.stop()
+    else:
+        st.error("유효하지 않은 링크입니다."); st.stop()
 else:
     is_respondent = False
-    if "passed_structure" in st.session_state:
-        survey_data = st.session_state["passed_structure"]
-    else:
-        survey_data = None
+    survey_data = st.session_state.get("passed_structure", None)
 
-# ------------------------------------------------------------------
-# [MODE A] 연구자: 비밀번호 설정 및 링크 생성
-# ------------------------------------------------------------------
 if not is_respondent:
     st.title("📢 설문 배포 센터 (Private Mode)")
-
     if not survey_data:
-        st.warning("⚠️ 확정된 구조가 없습니다. [1번 페이지]에서 구조를 먼저 확정하세요.")
-        st.stop()
-
-    st.success(f"**목표:** {survey_data['goal']}")
-
-    if "여기에" in FULL_URL:
-        st.error("🚨 코드 맨 윗줄의 'FULL_URL'을 설정해주세요!")
-        st.stop()
+        st.warning("⚠️ [1번 페이지]에서 구조를 먼저 확정하세요."); st.stop()
 
     with st.container(border=True):
         st.subheader("🔐 보안 설정 (관리자용)")
-        st.caption("응답자는 이 비밀번호를 알 필요가 없습니다. 데이터 확인용으로 연구자만 기억하세요.")
-        project_key = st.text_input(
-            "프로젝트 비밀번호(Key) 설정",
-            placeholder="예: team_a (이 키는 결과 조회 시 필요합니다)",
-            type="password",
-        )
+        project_key = st.text_input("프로젝트 비밀번호(Key) 설정", type="password")
 
     if st.button("🔗 공유 링크 생성하기", type="primary", use_container_width=True):
-        if not project_key:
-            st.error("데이터 관리를 위해 비밀번호를 설정해주세요.")
+        if not project_key: st.error("비밀번호를 설정해주세요.")
         else:
-            full_structure = {
-                "goal": survey_data["goal"],
-                "main_criteria": survey_data["main_criteria"],
-                "sub_criteria": survey_data["sub_criteria"],
-                "secret_key": project_key,
-            }
+            full_structure = {**survey_data, "secret_key": project_key}
             survey_id = uuid.uuid4().hex[:8]
-            config_path = os.path.join(CONFIG_DIR, f"{survey_id}.json")
-            with open(config_path, "w", encoding="utf-8") as f:
+            with open(os.path.join(CONFIG_DIR, f"{survey_id}.json"), "w", encoding="utf-8") as f:
                 json.dump(full_structure, f, ensure_ascii=False, indent=2)
-
             final_url = f"{FULL_URL}?id={survey_id}"
+            st.code(final_url)
+            st.success("링크가 생성되었습니다. 위 주소를 복사하여 공유하세요.")
 
-            st.markdown("### 👇 아래 버튼을 눌러 공유하세요")
-            components.html(
-                f"""
-            <style>
-                body {{ margin: 0; padding: 0; font-family: sans-serif; }}
-                .kakao-btn {{
-                    background-color: #FEE500; color: #000000; border: none; border-radius: 12px;
-                    padding: 15px 0; width: 100%; font-size: 16px; font-weight: bold; cursor: pointer;
-                    display: flex; align-items: center; justify-content: center; gap: 10px;
-                }}
-            </style>
-            <script>
-                function copyLink() {{
-                    const url = '{final_url}';
-                    navigator.clipboard.writeText(url).then(() => {{
-                        document.getElementById('msg').innerText = "✅ 복사되었습니다! 카톡방에 붙여넣으세요.";
-                        setTimeout(() => {{ document.getElementById('msg').innerText = ""; }}, 3000);
-                    }}).catch(err => {{ prompt("이 링크를 복사하세요:", url); }});
-                }}
-            </script>
-            <button class="kakao-btn" onclick="copyLink()">💬 카카오톡 링크 복사하기</button>
-            <div id="msg" style="text-align:center; color:green; font-size:12px; margin-top:5px; height:20px;"></div>
-            """, height=100)
-
-# ------------------------------------------------------------------
-# [MODE B] 응답자: 설문 진행
-# ------------------------------------------------------------------
 else:
     st.title(f"📝 {survey_data['goal']}")
-
     tasks = []
     if len(survey_data["main_criteria"]) > 1:
         tasks.append({"name": "📂 1. 평가 기준 중요도 비교", "items": survey_data["main_criteria"]})
@@ -140,203 +75,231 @@ else:
     <head>
     <meta charset="UTF-8">
     <style>
-        body {{ font-family: "Pretendard", sans-serif; padding: 20px; }}
-        .step {{ display: none; animation: fadeIn 0.3s; }}
-        .active {{ display: block; }}
-        @keyframes fadeIn {{ from {{ opacity: 0; }} to {{ opacity: 1; }} }}
-        .container {{ max-width: 700px; margin: 0 auto; background: white; padding: 30px; border-radius: 15px; box-shadow: 0 5px 20px rgba(0,0,0,0.08); border: 1px solid #eee; }}
-        h2 {{ color: #333; border-bottom: 2px solid #228be6; padding-bottom: 10px; }}
-        .ranking-item {{ display: flex; justify-content: space-between; margin-bottom: 10px; padding: 10px; background: #f8f9fa; border-radius: 8px; align-items: center; }}
-        .card {{ background: #f8f9fa; padding: 20px; border-radius: 12px; text-align: center; margin-bottom: 20px; }}
-        .vs-row {{ display: flex; justify-content: space-between; font-size: 1.2em; font-weight: bold; margin-bottom: 15px; }}
+        body {{ font-family: "Pretendard", sans-serif; padding: 10px; background: #f8f9fa; }}
+        .container {{ max-width: 700px; margin: 0 auto; background: white; padding: 25px; border-radius: 15px; box-shadow: 0 4px 15px rgba(0,0,0,0.05); }}
+        .step {{ display: none; }} .active {{ display: block; }}
+        .ranking-board {{ background: #e7f5ff; padding: 15px; border-radius: 10px; margin-bottom: 20px; border: 1px solid #a5d8ff; }}
+        .board-title {{ font-weight: bold; color: #1971c2; font-size: 0.9em; margin-bottom: 8px; display: flex; justify-content: space-between; }}
+        .board-grid {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(100px, 1fr)); gap: 10px; }}
+        .board-item {{ background: white; padding: 8px; border-radius: 6px; text-align: center; font-size: 0.85em; border: 1px solid #dbeafe; }}
+        .card {{ background: #f8f9fa; padding: 20px; border-radius: 12px; text-align: center; margin-bottom: 20px; border: 1px solid #eee; }}
         input[type=range] {{ width: 100%; margin: 20px 0; cursor: pointer; }}
-        .btn {{ width: 100%; padding: 15px; background: #228be6; color: white; border: none; border-radius: 8px; font-size: 1.1em; cursor: pointer; }}
-        .modal {{ display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); justify-content: center; align-items: center; }}
-        .modal-box {{ background: white; padding: 30px; border-radius: 15px; width: 90%; max-width: 450px; text-align: center; }}
-        .logic-text {{ color: #228be6; font-weight: bold; font-size: 1.1em; }}
-        .user-text {{ color: #fa5252; font-weight: bold; font-size: 1.1em; }}
+        .btn {{ width: 100%; padding: 14px; background: #228be6; color: white; border: none; border-radius: 8px; font-size: 1em; cursor: pointer; }}
+        .modal {{ display: none; position: fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.6); justify-content:center; align-items:center; z-index:100; }}
+        .modal-box {{ background:white; padding:25px; border-radius:12px; width:90%; max-width:450px; text-align:center; }}
+        .highlight {{ color: #228be6; font-weight: bold; }}
     </style>
     </head>
     <body>
     <div class="container">
-        <h3 id="task-title"></h3>
+        <h3 id="task-title" style="margin-top:0;"></h3>
+
+        <div id="live-board" class="ranking-board" style="display:none;">
+            <div class="board-title">
+                <span>📊 실시간 논리 현황</span>
+                <span id="logic-status">✅ 순위 일치</span>
+            </div>
+            <div id="board-grid" class="board-grid"></div>
+        </div>
+
         <div id="step-ranking" class="step">
-            <p>1. 각 항목의 중요도 순위를 미리 예상해 주세요.</p>
-            <div id="ranking-list"></div>
+            <p>1. 각 항목의 <b>예상 순위</b>를 먼저 선택해주세요.</p>
+            <div id="ranking-list" style="margin-bottom:20px;"></div>
             <button class="btn" onclick="startCompare()">비교 시작</button>
         </div>
+
         <div id="step-compare" class="step">
-            <p>2. 두 항목 중 더 중요한 쪽을 선택하세요. (<span id="progress"></span>)</p>
             <div class="card">
-                <div class="vs-row">
-                    <span style="color:#228be6;" id="item-a">A</span>
-                    <span style="font-size:0.8em; color:#999;">VS</span>
-                    <span style="color:#fa5252;" id="item-b">B</span>
+                <div style="display:flex; justify-content:space-between; font-weight:bold; font-size:1.1em; margin-bottom:15px;">
+                    <span id="item-a" style="color:#228be6;">A</span>
+                    <span style="color:#adb5bd;">VS</span>
+                    <span id="item-b" style="color:#fa5252;">B</span>
                 </div>
-                <div style="font-size:0.9em; color:#666; margin-bottom:10px;">
+                <div style="font-size:0.85em; color:#868e96; margin-bottom:10px;">
                     <span id="rank-hint-a"></span> vs <span id="rank-hint-b"></span>
                 </div>
                 <input type="range" id="slider" min="-4" max="4" value="0" step="1" oninput="updateLabel()">
-                <div id="val-display" style="font-weight:bold; color:#555; font-size:1.1em; margin-top:10px;">동등함</div>
+                <div id="val-display" style="font-weight:bold; color:#495057;">동등함</div>
             </div>
-            <button class="btn" onclick="checkConsistency()">다음 질문</button>
+            <button class="btn" onclick="checkLogic()">다음 질문</button>
         </div>
+
         <div id="step-finish" class="step">
-            <h2>🎉 모든 설문 완료!</h2>
-            <p>아래 코드를 복사해서 제출해주세요.</p>
-            <textarea id="result-code" style="width:100%; height:150px;"></textarea>
+            <h2>🎉 설문 완료</h2>
+            <p style="font-size:0.9em; color:#666;">아래 코드를 복사하여 하단 제출란에 붙여넣어주세요.</p>
+            <textarea id="result-code" readonly style="width:100%; height:120px; padding:10px; border-radius:8px; border:1px solid #ddd; background:#f1f3f5; font-family:monospace;"></textarea>
         </div>
     </div>
 
     <div id="modal" class="modal">
         <div class="modal-box">
-            <h3>⚠️ 논리적 일관성 확인</h3>
-            <p style="font-size:0.9em; color:#666;">이전 응답을 분석한 결과, 순위 논리를 유지하면서 추천되는 값입니다.</p>
-            <div style="background:#f1f3f5; padding:20px; border-radius:10px; margin:20px 0; text-align:left;">
-                <div style="margin-bottom:10px;">🧠 AI 추천: <span id="rec-val" class="logic-text"></span></div>
-                <div>🖐 나의 선택: <span id="my-val" class="user-text"></span></div>
+            <h3 style="color:#e03131;">⚠️ 순위 논리 불일치</h3>
+            <p style="font-size:0.9em; color:#495057; line-height:1.5;">
+                현재 응답을 선택하면 초기 예상 순위와 달라집니다.<br>
+                어떻게 진행하시겠습니까?
+            </p>
+            <div style="background:#f8f9fa; padding:15px; border-radius:8px; margin:15px 0; font-size:0.85em; text-align:left;">
+                <div>💡 권장 가중치: <span id="rec-val" class="highlight"></span></div>
+                <div style="margin-top:5px; color:#868e96;">* 권장값을 선택하면 순위가 유지됩니다.</div>
             </div>
-            <div style="display:flex; gap:10px;">
-                <button class="btn" style="background:#adb5bd;" onclick="closeModal(false)">내 선택 유지</button>
-                <button class="btn" onclick="closeModal(true)">다시 설문하기</button>
+            <div style="display:grid; gap:10px;">
+                <button class="btn" onclick="closeModal('resurvey')">다시 설문하기 (추천값 참고)</button>
+                <button class="btn" style="background:#868e96;" onclick="closeModal('updaterank')">순위 변경하기 (현재 응답 인정)</button>
             </div>
         </div>
     </div>
 
     <script>
         const tasks = {js_tasks};
-        let currentTaskIdx = 0;
-        let items = [], pairs = [], matrix = [], pairIdx = 0, initialRanks = [];
+        let currentTaskIdx = 0, items = [], pairs = [], matrix = [], pairIdx = 0, initialRanks = [];
         let allAnswers = {{}};
-
-        function getWeightFromSlider(val) {{
-            if (val === 0) return 1;
-            return val < 0 ? (Math.abs(val) + 1) : (1 / (val + 1));
-        }}
 
         function loadTask() {{
             if (currentTaskIdx >= tasks.length) {{ finishAll(); return; }}
-            const task = tasks[currentTaskIdx];
-            items = task.items;
+            const task = tasks[currentTaskIdx]; items = task.items;
             document.getElementById('task-title').innerText = task.name;
-            const listDiv = document.getElementById('ranking-list');
-            listDiv.innerHTML = "";
+            const listDiv = document.getElementById('ranking-list'); listDiv.innerHTML = "";
             let options = '<option value="" selected disabled>선택</option>';
             for(let i=1; i<=items.length; i++) options += `<option value="${{i}}">${{i}}위</option>`;
             items.forEach((item, idx) => {{
-                listDiv.innerHTML += `<div class="ranking-item"><span>${{item}}</span><select id="rank-${{idx}}" class="rank-select" style="padding:5px; border-radius:5px;">${{options}}</select></div>`;
+                listDiv.innerHTML += `<div style="display:flex; justify-content:space-between; padding:10px; background:#f1f3f5; border-radius:8px; margin-bottom:8px;">
+                    <span>${{item}}</span><select id="rank-${{idx}}" style="padding:4px;">${{options}}</select></div>`;
             }});
-            showStep('step-ranking');
+            showStep('step-ranking'); document.getElementById('live-board').style.display = 'none';
         }}
 
         function startCompare() {{
             initialRanks = [];
             for(let i=0; i<items.length; i++) {{
-                const val = document.getElementById('rank-'+i).value;
-                if(!val) {{ alert("순위를 모두 선택해주세요."); return; }}
-                initialRanks.push(val);
+                const v = document.getElementById('rank-'+i).value;
+                if(!v) {{ alert("모든 순위를 선택해주세요."); return; }}
+                initialRanks.push(parseInt(v));
             }}
-            if(new Set(initialRanks).size !== initialRanks.length) {{ alert("⚠️ 중복된 순위가 있습니다!"); return; }}
-            const n = items.length;
-            matrix = Array.from({{length: n}}, () => Array(n).fill(0));
+            if(new Set(initialRanks).size !== initialRanks.length) {{ alert("중복 순위가 있습니다."); return; }}
+            const n = items.length; matrix = Array.from({{length: n}}, () => Array(n).fill(0));
             for(let i=0; i<n; i++) matrix[i][i] = 1;
             pairs = [];
             for(let i=0; i<n; i++) {{ for(let j=i+1; j<n; j++) {{ pairs.push({{ r: i, c: j, a: items[i], b: items[j] }}); }} }}
-            pairIdx = 0;
-            showStep('step-compare');
-            renderPair();
+            pairIdx = 0; showStep('step-compare'); renderPair();
         }}
 
         function renderPair() {{
             if (pairIdx >= pairs.length) {{ currentTaskIdx++; loadTask(); return; }}
             const p = pairs[pairIdx];
-            document.getElementById('item-a').innerText = p.a;
-            document.getElementById('item-b').innerText = p.b;
-            document.getElementById('rank-hint-a').innerText = `(${{initialRanks[p.r]}}위)`;
-            document.getElementById('rank-hint-b').innerText = `(${{initialRanks[p.c]}}위)`;
-            document.getElementById('slider').value = 0;
-            updateLabel();
-            document.getElementById('progress').innerText = (pairIdx + 1) + " / " + pairs.length;
+            document.getElementById('item-a').innerText = p.a; document.getElementById('item-b').innerText = p.b;
+            document.getElementById('rank-hint-a').innerText = `기대: ${{initialRanks[p.r]}}위`;
+            document.getElementById('rank-hint-b').innerText = `기대: ${{initialRanks[p.c]}}위`;
+            document.getElementById('slider').value = 0; updateLabel(); updateBoard();
+            document.getElementById('live-board').style.display = 'block';
         }}
 
         function updateLabel() {{
             const val = parseInt(document.getElementById('slider').value);
-            const disp = document.getElementById('val-display');
-            const p = pairs[pairIdx];
-            if(val == 0) {{ disp.innerText = "동등함 (1:1)"; disp.style.color = "#555"; }}
-            else if(val < 0) {{ disp.innerText = p.a + " " + (Math.abs(val)+1) + "배 중요"; disp.style.color = "#228be6"; }}
-            else {{ disp.innerText = p.b + " " + (val+1) + "배 중요"; disp.style.color = "#fa5252"; }}
+            const p = pairs[pairIdx]; const disp = document.getElementById('val-display');
+            if(val == 0) disp.innerText = "동등함 (1:1)";
+            else if(val < 0) disp.innerText = `${{p.a}} ${{Math.abs(val)+1}}배 중요`;
+            else disp.innerText = `${{p.b}} ${{val+1}}배 중요`;
         }}
 
-        function checkConsistency() {{
+        function updateBoard() {{
+            const grid = document.getElementById('board-grid'); grid.innerHTML = "";
+            let weights = calculateSimpleWeights();
+            let sortedIdx = weights.map((w, i) => i).sort((a, b) => weights[b] - weights[a]);
+            let currentRanks = new Array(items.length);
+            sortedIdx.forEach((idx, i) => currentRanks[idx] = i + 1);
+
+            let isMismatched = false;
+            items.forEach((item, i) => {{
+                const match = currentRanks[i] === initialRanks[i];
+                if(!match) isMismatched = true;
+                grid.innerHTML += `<div class="board-item">
+                    <div style="font-weight:bold; color:#1971c2;">${{item}}</div>
+                    <div style="font-size:0.8em; margin-top:4px;">기대: ${{initialRanks[i]}}위</div>
+                    <div style="font-size:0.8em; color:${{match?'#2f9e44':'#e03131'}};">현재: ${{currentRanks[i]}}위</div>
+                </div>`;
+            }});
+            const status = document.getElementById('logic-status');
+            status.innerText = isMismatched ? "⚠️ 순위 역전 발생" : "✅ 순위 일치";
+            status.style.color = isMismatched ? "#e03131" : "#2f9e44";
+        }}
+
+        function calculateSimpleWeights() {{
+            const n = items.length; let currentW = new Array(n).fill(1);
+            let tempMatrix = matrix.map(row => [...row]);
             const sliderVal = parseInt(document.getElementById('slider').value);
             const p = pairs[pairIdx];
-            const rankA = parseInt(initialRanks[p.r]);
-            const rankB = parseInt(initialRanks[p.c]);
-
-            if (rankA < rankB && sliderVal > 0) {{ alert(`⚠️ 순위 모순! '${{p.a}}'(${{rankA}}위)가 더 높으므로 오른쪽으로 갈 수 없습니다.`); return; }}
-            if (rankA > rankB && sliderVal < 0) {{ alert(`⚠️ 순위 모순! '${{p.b}}'(${{rankB}}위)가 더 높으므로 왼쪽으로 갈 수 없습니다.`); return; }}
-
-            let currentWeight = getWeightFromSlider(sliderVal);
-            const n = items.length;
-            let indirectEstimates = [];
-            for(let k=0; k<n; k++) {{
-                if(k === p.r || k === p.c) continue;
-                if(matrix[p.r][k] !== 0 && matrix[k][p.c] !== 0) indirectEstimates.push(matrix[p.r][k] * matrix[k][p.c]);
-            }}
-
-            if(indirectEstimates.length > 0) {{
-                let geoMean = Math.exp(indirectEstimates.reduce((acc, val) => acc + Math.log(val), 0) / indirectEstimates.length);
-                if (rankA < rankB && geoMean < 1) geoMean = 1;
-                if (rankA > rankB && geoMean > 1) geoMean = 1;
-
-                const ratio = currentWeight > geoMean ? currentWeight / geoMean : geoMean / currentWeight;
-                if(ratio >= 2.0) {{ showModal(geoMean, currentWeight); return; }}
-            }}
-            saveAnswer(currentWeight);
+            const w = sliderVal === 0 ? 1 : (sliderVal < 0 ? Math.abs(sliderVal)+1 : 1/(sliderVal+1));
+            tempMatrix[p.r][p.c] = w; tempMatrix[p.c][p.r] = 1/w;
+            
+            // 기하평균 기반 약식 가중치
+            let weights = tempMatrix.map(row => {{
+                let product = row.reduce((a, b) => a * (b || 1), 1);
+                return Math.pow(product, 1/n);
+            }});
+            let sum = weights.reduce((a, b) => a + b, 0);
+            return weights.map(v => v / sum);
         }}
 
-        function showModal(recW, usrW) {{
-            const fmt = (w) => {{
-                if (w >= 1.1) return "왼쪽(A) " + Math.min(5, Math.round(w)) + "배";
-                if (w <= 0.9) return "오른쪽(B) " + Math.min(5, Math.round(1/w)) + "배";
-                return "동등함(1:1)";
-            }};
-            document.getElementById('rec-val').innerText = fmt(recW);
-            document.getElementById('my-val').innerText = fmt(usrW);
+        function checkLogic() {{
+            const sliderVal = parseInt(document.getElementById('slider').value);
+            const p = pairs[pairIdx];
+            const rankA = initialRanks[p.r]; const rankB = initialRanks[p.c];
+            
+            // 직접적 순위 위배 체크
+            if ((rankA < rankB && sliderVal > 0) || (rankA > rankB && sliderVal < 0)) {{
+                showModal(); return;
+            }}
+            saveAndNext();
+        }}
+
+        function showModal() {{
+            const p = pairs[pairIdx];
+            const rankA = initialRanks[p.r];
+            document.getElementById('rec-val').innerText = rankA < initialRanks[p.c] ? "왼쪽(A) 우세" : "오른쪽(B) 우세";
             document.getElementById('modal').style.display = 'flex';
         }}
 
-        function closeModal(reSurvey) {{
+        function closeModal(action) {{
             document.getElementById('modal').style.display = 'none';
-            if(reSurvey) {{
-                document.getElementById('slider').value = 0; updateLabel();
-                alert("💡 추천값을 참고하여 슬라이더를 다시 조정해 주세요.");
+            if(action === 'updaterank') {{
+                // 현재 응답에 맞춰 기대 순위 자체를 재설정 (응답자의 변심 인정)
+                let weights = calculateSimpleWeights();
+                let sortedIdx = weights.map((w, i) => i).sort((a, b) => weights[b] - weights[a]);
+                sortedIdx.forEach((idx, i) => initialRanks[idx] = i + 1);
+                saveAndNext();
             }} else {{
-                saveAnswer(getWeightFromSlider(parseInt(document.getElementById('slider').value)));
+                document.getElementById('slider').value = 0; updateLabel();
             }}
         }}
 
-        function saveAnswer(w) {{
+        function saveAndNext() {{
+            const val = parseInt(document.getElementById('slider').value);
+            const w = val === 0 ? 1 : (val < 0 ? Math.abs(val)+1 : 1/(val+1));
             const p = pairs[pairIdx];
-            matrix[p.r][p.c] = w; matrix[p.c][p.r] = 1 / w;
-            let logVal = w >= 1 ? w : -1 * (1/w);
-            allAnswers[`[${{tasks[currentTaskIdx].name}}] ${{p.a}} vs ${{p.b}}`] = logVal.toFixed(2);
+            matrix[p.r][p.c] = w; matrix[p.c][p.r] = 1/w;
+            allAnswers[`[${{tasks[currentTaskIdx].name}}] ${{p.a}} vs ${{p.b}}`] = (w >= 1 ? w : -1*(1/w)).toFixed(2);
             pairIdx++; renderPair();
         }}
 
-        function finishAll() {{ showStep('step-finish'); document.getElementById('result-code').value = JSON.stringify(allAnswers); }}
-        function showStep(id) {{ document.querySelectorAll('.step').forEach(e => e.classList.remove('active')); document.getElementById(id).classList.add('active'); }}
+        function finishAll() {{
+            showStep('step-finish'); document.getElementById('live-board').style.display = 'none';
+            document.getElementById('result-code').value = JSON.stringify(allAnswers);
+        }}
+
+        function showStep(id) {{
+            document.querySelectorAll('.step').forEach(e => e.classList.remove('active'));
+            document.getElementById(id).classList.add('active');
+        }}
         loadTask();
     </script>
     </body>
     </html>
     """
-    components.html(html_code, height=800, scrolling=True)
+    components.html(html_code, height=850, scrolling=True)
 
     st.divider()
     with st.form("save"):
-        st.write("📋 **데이터 제출**")
+        st.write("📋 **데이터 최종 제출**")
         respondent = st.text_input("응답자 성함")
         code = st.text_area("결과 코드 붙여넣기")
         if st.form_submit_button("제출"):
@@ -345,16 +308,12 @@ else:
                 goal_clean = survey_data["goal"].replace(" ", "_")
                 secret_key = survey_data.get("secret_key", "public")
                 if not os.path.exists("survey_data"): os.makedirs("survey_data")
-                
-                # [오타 수정 완료] 중괄호를 하나만 사용
                 file_path = f"survey_data/{secret_key}_{goal_clean}.csv"
-                
-                save_data = { "Time": datetime.now().strftime("%Y-%m-%d %H:%M"), "Respondent": respondent, "Raw_Data": code }
+                save_data = {"Time": datetime.now().strftime("%Y-%m-%d %H:%M"), "Respondent": respondent, "Raw_Data": code}
                 df = pd.DataFrame([save_data])
                 try: old_df = pd.read_csv(file_path)
                 except: old_df = pd.DataFrame()
                 pd.concat([old_df, df], ignore_index=True).to_csv(file_path, index=False)
-                st.success(f"✅ '{respondent}'님, 안전하게 제출되었습니다! 감사합니다.")
+                st.success("✅ 제출되었습니다! 감사합니다.")
                 st.balloons()
-            except Exception as e:
-                st.error(f"오류 발생: {e}")
+            except Exception as e: st.error(f"오류: {e}")
