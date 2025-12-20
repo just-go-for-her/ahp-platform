@@ -31,8 +31,7 @@ if survey_id:
             survey_data = json.load(f)
         is_respondent = True
     else:
-        st.error("유효하지 않은 링크입니다.")
-        st.stop()
+        st.error("유효하지 않은 링크입니다."); st.stop()
 else:
     is_respondent = False
     survey_data = st.session_state.get("passed_structure", None)
@@ -40,8 +39,7 @@ else:
 if not is_respondent:
     st.title("📢 설문 배포 센터")
     if not survey_data:
-        st.warning("⚠️ [1번 페이지]에서 구조를 먼저 확정하세요.")
-        st.stop()
+        st.warning("⚠️ [1번 페이지]에서 구조를 먼저 확정하세요."); st.stop()
     project_key = st.text_input("프로젝트 비밀번호(Key) 설정", type="password")
     if st.button("🔗 공유 링크 생성하기", type="primary", use_container_width=True):
         if not project_key: st.error("비밀번호 설정이 필요합니다.")
@@ -234,6 +232,7 @@ else:
             document.getElementById('hint-b').innerText = initialRanks[p.c];
             document.getElementById('slider').value = 0;
             
+            // [버튼 배치 로직 수정]
             const btnArea = document.getElementById('btn-area');
             if (pairIdx === 0) {{
                 // 첫 질문: [순위 재설정(회색)] [다음]
@@ -458,7 +457,11 @@ else:
                     if not os.path.exists("survey_data"): os.makedirs("survey_data")
                     file_path = f"survey_data/{secret_key}_{goal_clean}.csv"
                     save_dict = {"Time": datetime.now().strftime("%Y-%m-%d %H:%M"), "Respondent": respondent, "Raw_Data": code}
-                    df = pd.DataFrame([save_dict]); try: old_df = pd.read_csv(file_path); except: old_df = pd.DataFrame()
+                    df = pd.DataFrame([save_dict])
+                    try: 
+                        old_df = pd.read_csv(file_path)
+                    except: 
+                        old_df = pd.DataFrame()
                     pd.concat([old_df, df], ignore_index=True).to_csv(file_path, index=False)
                     st.success("✅ 제출 성공!"); st.balloons()
                 except: st.error("코드 오류")
