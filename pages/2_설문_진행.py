@@ -42,7 +42,7 @@ if not is_respondent:
         st.warning("⚠️ [1번 페이지]에서 구조를 먼저 확정하세요."); st.stop()
     project_key = st.text_input("프로젝트 비밀번호(Key) 설정", type="password")
     if st.button("🔗 공유 링크 생성하기", type="primary", use_container_width=True):
-        if not project_key: st.error("비밀번호 설정 필요")
+        if not project_key: st.error("비밀번호 설정이 필요합니다.")
         else:
             full_structure = {**survey_data, "secret_key": project_key}
             survey_id = uuid.uuid4().hex[:8]
@@ -69,19 +69,20 @@ else:
     <meta charset="UTF-8">
     <style>
         body {{ font-family: "Pretendard", sans-serif; padding: 10px; background: #f8f9fa; }}
-        .container {{ max-width: 700px; margin: 0 auto; background: white; padding: 25px; border-radius: 15px; box-shadow: 0 4px 15px rgba(0,0,0,0.05); }}
+        .container {{ max-width: 700px; margin: 0 auto; background: white; padding: 25 : 25px; border-radius: 15px; box-shadow: 0 4px 15px rgba(0,0,0,0.05); }}
         .step {{ display: none; }} .active {{ display: block; }}
         
         .ranking-board {{ background: #f1f3f5; padding: 18px; border-radius: 12px; margin-bottom: 25px; border: 1px solid #dee2e6; }}
         .board-title {{ font-weight: bold; color: #495057; font-size: 0.9em; margin-bottom: 15px; display: flex; justify-content: space-between; align-items: center; }}
         .status-pill {{ padding: 4px 12px; border-radius: 20px; font-size: 0.82em; font-weight: bold; }}
         
-        .board-grid {{ display: flex; gap: 10px; overflow-x: auto; padding-bottom: 8px; }}
-        .board-item {{ min-width: 155px; background: white; padding: 15px; border-radius: 12px; text-align: center; border: 1px solid #dee2e6; flex: 1; display: flex; flex-direction: column; gap: 8px; }}
+        .board-grid {{ display: flex; gap: 10px; overflow-x: auto; padding-bottom: 10px; }}
+        .board-item {{ min-width: 150px; background: white; padding: 15px; border-radius: 12px; text-align: center; border: 1px solid #dee2e6; flex: 1; }}
         
-        .item-name {{ font-weight: 800; color: #343a40; border-bottom: 1px solid #f1f3f5; padding-bottom: 6px; }}
-        .rank-row {{ display: flex; justify-content: space-between; align-items: center; font-size: 0.85em; color: #666; padding: 0 4px; }}
+        .item-name {{ font-weight: 800; color: #343a40; margin-bottom: 8px; display: block; border-bottom: 1px solid #f1f3f5; padding-bottom: 6px; }}
+        .rank-row {{ display: flex; justify-content: space-between; align-items: center; font-size: 0.85em; color: #666; margin: 4px 0; }}
         .rank-val {{ font-weight: bold; color: #444; }}
+        
         .error-color {{ color: #fa5252 !important; text-decoration: underline; font-weight: 800; }}
         .match-color {{ color: #228be6; }}
 
@@ -104,14 +105,14 @@ else:
 
         <div id="live-board" class="ranking-board" style="display:none;">
             <div class="board-title">
-                <span>📊 실시간 순위 현황 (설정 순서 고정)</span>
+                <span>📊 실시간 순위 현황 (기존 설정 순서)</span>
                 <span id="status-pill" class="status-pill">체크 중</span>
             </div>
             <div id="board-grid" class="board-grid"></div>
         </div>
 
         <div id="step-ranking" class="step">
-            <p><b>1단계:</b> 각 항목의 중요도 순위를 먼저 정해주세요.</p>
+            <p><b>1단계:</b> 각 항목의 중요도 순위를 정해주세요.</p>
             <div id="ranking-list" style="margin-bottom:20px;"></div>
             <button class="btn" onclick="startCompare()">설문 시작하기</button>
         </div>
@@ -124,7 +125,7 @@ else:
                     <span id="item-b" style="color:#fa5252;">B</span>
                 </div>
                 <div style="font-size:0.95em; color:#adb5bd; margin-bottom:10px;">
-                    (기존: <span id="hint-a"></span>위) vs (기존: <span id="hint-b"></span>위)
+                    (기존 순위: <span id="hint-a"></span>위) vs (기존 순위: <span id="hint-b"></span>위)
                 </div>
                 <input type="range" id="slider" min="-4" max="4" value="0" step="1" oninput="updateUI()">
                 <div id="val-display" style="font-weight:bold; color:#343a40; font-size:1.4em;">동등함</div>
@@ -148,11 +149,11 @@ else:
         <div class="modal-box">
             <h3 style="color:#fa5252; margin-top:0;">⚠️ 순위 역전 감지</h3>
             <p style="font-size:0.95em; color:#495057; line-height:1.7; margin-bottom:25px;">
-                현재 응답을 적용하면 기존에 설정한 순서가 뒤바뀌게 됩니다.<br><b>변경된 의사를 인정</b>하시겠습니까, 아니면 <b>응답을 수정</b>하시겠습니까?
+                현재 응답을 적용하면 기존에 설정한 순위가 뒤바뀌게 됩니다.<br><b>변경된 의사를 인정</b>하시겠습니까, 아니면 <b>응답을 수정</b>하시겠습니까?
             </p>
             <div style="display:grid; gap:12px;">
                 <button class="btn" onclick="closeModal('resurvey')" style="background:#228be6;">👈 현재 답변 수정 (기존 순위 유지)</button>
-                <button class="btn" onclick="closeModal('updaterank')" style="background:#868e96;">✅ 순위 변경 인정 (변동 순위 반영)</button>
+                <button class="btn" onclick="closeModal('updaterank')" style="background:#868e96;">✅ 바뀐 순위 인정 (설정값 업데이트)</button>
             </div>
         </div>
     </div>
@@ -218,8 +219,9 @@ else:
             let val = parseInt(slider.value);
             const p = pairs[pairIdx];
 
+            // [조작 실수 차단] 왼쪽이 상위 순위인데 오른쪽 선택 시 즉시 리셋
             if (val > 0) {{
-                alert(`⚠️ 오류: [${{p.a}}] 항목이 처음에 더 높은 순위로 설정되었습니다.\\n설정하신 순서에 맞게 왼쪽(A 우세) 방향으로만 선택할 수 있습니다.`);
+                alert(`안내: [${{p.a}}] 항목이 상위 순위입니다.\\n논리적 일관성을 위해 왼쪽(A 우세) 방향으로만 응답해 주세요.`);
                 slider.value = 0; val = 0;
             }}
 
@@ -248,8 +250,6 @@ else:
             let hasFlip = false;
             fixedOrder.forEach(item => {{
                 const cur = currentRanks[item.idx];
-                
-                // [핵심] 공동 순위는 역전이 아님. 엄격하게 i가 j보다 높았는데 j가 i보다 높은 상황만 체크
                 let isFlipped = false;
                 for(let k=0; k<items.length; k++) {{
                     if(initialRanks[item.idx] < initialRanks[k] && currentRanks[item.idx] > currentRanks[k]) {{
@@ -347,9 +347,10 @@ else:
     components.html(html_code, height=850, scrolling=True)
 
     st.divider()
-    with st.form("data_save_final"):
+    # 딕셔너리 문법 교정 완료: {{ }} -> { }
+    with st.form("final_save_form"):
         respondent = st.text_input("응답자 성함")
-        code = st.text_area("결과 코드를 붙여넣으세요")
+        code = st.text_area("결과 코드를 복사해서 붙여넣으세요")
         if st.form_submit_button("최종 제출", type="primary"):
             if respondent and code:
                 try:
@@ -358,9 +359,11 @@ else:
                     secret_key = survey_data.get("secret_key", "public")
                     if not os.path.exists("survey_data"): os.makedirs("survey_data")
                     file_path = f"survey_data/{secret_key}_{goal_clean}.csv"
-                    # 파이썬 저장 딕셔너리 기호 처리
+                    # 핵심 수정: 파이썬 딕셔너리 기호
                     save_dict = {"Time": datetime.now().strftime("%Y-%m-%d %H:%M"), "Respondent": respondent, "Raw_Data": code}
-                    df = pd.DataFrame([save_dict]); try: old_df = pd.read_csv(file_path); except: old_df = pd.DataFrame()
+                    df = pd.DataFrame([save_dict])
+                    try: old_df = pd.read_csv(file_path)
+                    except: old_df = pd.DataFrame()
                     pd.concat([old_df, df], ignore_index=True).to_csv(file_path, index=False)
-                    st.success("✅ 제출 성공!"); st.balloons()
+                    st.success("✅ 제출되었습니다!"); st.balloons()
                 except: st.error("코드 오류")
