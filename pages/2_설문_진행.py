@@ -40,9 +40,7 @@ if not is_respondent:
     st.title("📢 설문 배포 센터")
     if not survey_data:
         st.warning("⚠️ [1번 페이지]에서 구조를 먼저 확정하세요."); st.stop()
-    with st.container(border=True):
-        st.subheader("🔐 보안 설정 (관리자용)")
-        project_key = st.text_input("프로젝트 비밀번호(Key) 설정", type="password")
+    project_key = st.text_input("프로젝트 비밀번호(Key) 설정", type="password")
     if st.button("🔗 공유 링크 생성하기", type="primary", use_container_width=True):
         if not project_key: st.error("비밀번호를 설정해주세요.")
         else:
@@ -51,7 +49,7 @@ if not is_respondent:
             with open(os.path.join(CONFIG_DIR, f"{survey_id}.json"), "w", encoding="utf-8") as f:
                 json.dump(full_structure, f, ensure_ascii=False, indent=2)
             st.code(f"{FULL_URL}?id={survey_id}")
-            st.success("링크가 생성되었습니다. 복사하여 사용하세요.")
+            st.success("링크 생성 완료!")
 
 else:
     st.title(f"📝 {survey_data['goal']}")
@@ -76,13 +74,13 @@ else:
         
         .ranking-board {{ background: #f1f3f5; padding: 18px; border-radius: 12px; margin-bottom: 25px; border: 1px solid #dee2e6; }}
         .board-title {{ font-weight: bold; color: #495057; font-size: 0.9em; margin-bottom: 15px; }}
-        .board-grid {{ display: flex; gap: 12px; overflow-x: auto; padding-bottom: 5px; }}
-        .board-item {{ min-width: 140px; background: white; padding: 15px; border-radius: 10px; text-align: center; border: 1px solid #dee2e6; flex: 1; display: flex; flex-direction: column; gap: 5px; }}
+        .board-grid {{ display: flex; gap: 10px; overflow-x: auto; padding-bottom: 5px; }}
+        .board-item {{ min-width: 140px; background: white; padding: 15px; border-radius: 10px; text-align: center; border: 1px solid #dee2e6; flex: 1; }}
         
-        .rank-row {{ display: flex; justify-content: center; gap: 5px; font-size: 0.85em; }}
+        .rank-info {{ display: flex; flex-direction: column; gap: 4px; margin-top: 8px; font-size: 0.85em; }}
         .rank-label {{ color: #868e96; }}
         .rank-value {{ font-weight: bold; color: #228be6; }}
-        .mismatch {{ color: #fa5252 !important; text-decoration: underline; }}
+        .mismatch {{ color: #fa5252 !important; }}
 
         .card {{ background: #fff; padding: 30px; border-radius: 15px; text-align: center; margin-bottom: 20px; border: 1px solid #e9ecef; }}
         
@@ -111,7 +109,7 @@ else:
         </div>
 
         <div id="step-ranking" class="step">
-            <p><b>1단계:</b> 각 항목의 <b>기대 순위</b>를 먼저 정해주세요.</p>
+            <p><b>1단계:</b> 예상하는 중요도 순위를 정해주세요.</p>
             <div id="ranking-list" style="margin-bottom:20px;"></div>
             <button class="btn" onclick="startCompare()">설문 시작하기</button>
         </div>
@@ -142,13 +140,13 @@ else:
 
     <div id="modal" class="modal">
         <div class="modal-box">
-            <h3 style="color:#fa5252; margin-top:0;">⚠️ 논리 불일치 감지</h3>
+            <h3 style="color:#fa5252; margin-top:0;">⚠️ 순위 변동 위험 감지</h3>
             <p style="font-size:0.95em; color:#495057; line-height:1.7; margin-bottom:25px;">
-                현재 <b>왼쪽 항목</b>이 더 높은 순위로 설정되어 있습니다.<br>순위 변경 없이 오른쪽 항목을 더 높게 평가하실 수 없습니다.
+                현재 응답을 적용하면 <b>이전 답변들과의 관계</b> 때문에<br>설정하신 전체 순위가 뒤바뀌게 됩니다.
             </p>
             <div style="display:grid; gap:12px;">
-                <button class="btn" onclick="closeModal('resurvey')" style="background:#228be6;">👈 현재 답변 수정 (원래 생각대로)</button>
-                <button class="btn" onclick="closeModal('updaterank')" style="background:#868e96;">✅ 순위 변경 인정 (바뀐 생각 반영)</button>
+                <button class="btn" onclick="closeModal('resurvey')" style="background:#228be6;">👈 현재 답변 수정 (순위 유지)</button>
+                <button class="btn" onclick="closeModal('updaterank')" style="background:#868e96;">✅ 순위 변경 인정 (의사 반영)</button>
             </div>
         </div>
     </div>
@@ -176,7 +174,7 @@ else:
             initialRanks = []; let tempIdxMap = [];
             for(let i=0; i<items.length; i++) {{
                 const el = document.getElementById('rank-'+i);
-                if(!el.value) {{ alert("순위를 모두 정해주세요."); return; }}
+                if(!el.value) {{ alert("순위를 정해주세요."); return; }}
                 initialRanks[i] = parseInt(el.value);
                 tempIdxMap.push({{ name: items[i], rank: initialRanks[i], originIdx: i }});
             }}
@@ -212,44 +210,35 @@ else:
             const slider = document.getElementById('slider');
             let val = parseInt(slider.value);
             
-            // [중요] 첫 질문이 아닐 때만 낮은 순위 쪽(오른쪽) 차단
-            if (pairIdx > 0 && val > 0) {{
-                alert("⚠️ 현재 왼쪽 항목이 더 높은 등수입니다. 오른쪽을 선택하려면 '순위 변경' 절차를 거쳐야 합니다.");
+            // [중요 1] 오른쪽 이동(B 우세) 원천 차단 로직
+            if (val > 0) {{
+                alert("왼쪽 항목이 상위 순위입니다. 오른쪽 항목을 더 중요하게 선택할 수 없습니다.");
                 slider.value = 0; val = 0;
             }}
 
             const p = pairs[pairIdx]; const disp = document.getElementById('val-display');
             let perc = (val + 4) * 12.5;
             if(val < 0) slider.style.background = `linear-gradient(to right, #dee2e6 0%, #dee2e6 ${{perc}}%, #228be6 ${{perc}}%, #228be6 50%, #dee2e6 50%, #dee2e6 100%)`;
-            else if(val > 0) slider.style.background = `linear-gradient(to right, #dee2e6 0%, #dee2e6 50%, #228be6 50%, #228be6 ${{perc}}%, #dee2e6 ${{perc}}%, #dee2e6 100%)`;
             else slider.style.background = '#dee2e6';
 
             if(val == 0) disp.innerText = "동등함 (1:1)";
-            else if(val < 0) disp.innerText = `${{p.a}} ${{Math.abs(val)+1}}배 중요`;
-            else disp.innerText = `${{p.b}} ${{val+1}}배 중요`;
+            else disp.innerText = `${{p.a}} ${{Math.abs(val)+1}}배 중요`;
             updateBoard();
         }}
 
         function updateBoard() {{
             const grid = document.getElementById('board-grid'); grid.innerHTML = "";
-            
-            if (pairIdx === 0) {{
-                let sortedItems = items.map((name, i) => ({{name, rank: initialRanks[i]}})).sort((a,b) => a.rank - b.rank);
-                sortedItems.forEach(item => {{
-                    grid.innerHTML += `<div class="board-item"><b>${{item.name}}</b><div class="rank-row"><span class="rank-label">기대:</span><span class="rank-value">${{item.rank}}위</span></div></div>`;
-                }});
-                return;
-            }}
-
             let weights = calculateWeights();
             let sortedIdx = weights.map((w, i) => i).sort((a, b) => weights[b] - weights[a]);
             
             sortedIdx.forEach((idx, i) => {{
-                const match = (i + 1) === initialRanks[idx];
-                grid.innerHTML += `<div class="board-item" style="border-color:${{match?'#dee2e6':'#fa5252'}}">
+                const match = (i+1) === initialRanks[idx];
+                grid.innerHTML += `<div class="board-item">
                     <b>${{items[idx]}}</b>
-                    <div class="rank-row"><span class="rank-label">기대:</span><span class="rank-value">${{initialRanks[idx]}}위</span></div>
-                    <div class="rank-row"><span class="rank-label">현재:</span><span class="rank-value ${{match?'':'mismatch'}}">${{i+1}}위</span></div>
+                    <div class="rank-info">
+                        <div><span class="rank-label">기대:</span> <span class="rank-value">${{initialRanks[idx]}}위</span></div>
+                        <div><span class="rank-label">현재:</span> <span class="rank-value ${{match?'':'mismatch'}}">${{i+1}}위</span></div>
+                    </div>
                 </div>`;
             }});
         }}
@@ -270,8 +259,14 @@ else:
             if (pairIdx === 0) {{ saveAndNext(); return; }}
             let weights = calculateWeights();
             let sortedIdx = weights.map((w, i) => i).sort((a, b) => weights[b] - weights[a]);
-            let mismatch = items.some((_, i) => (sortedIdx.indexOf(i) + 1) !== initialRanks[i]);
-            if (mismatch) {{ document.getElementById('modal').style.display = 'flex'; return; }}
+            
+            // [중요 2] A=5B, A=3C 처럼 간접적으로 순위가 뒤집히는 경우만 모달 띄움
+            let isAnyRankFlipped = items.some((_, idx) => (sortedIdx.indexOf(idx) + 1) !== initialRanks[idx]);
+            
+            if (isAnyRankFlipped) {{
+                document.getElementById('modal').style.display = 'flex';
+                return;
+            }}
             saveAndNext();
         }}
 
@@ -281,6 +276,8 @@ else:
                 let weights = calculateWeights();
                 let sortedIdx = weights.map((w, i) => i).sort((a, b) => weights[b] - weights[a]);
                 sortedIdx.forEach((idx, i) => {{ initialRanks[idx] = i + 1; }});
+                
+                // 순위 변경 인정 시 남은 질문들 좌우 반전 교정
                 for (let k = pairIdx; k < pairs.length; k++) {{
                     let p = pairs[k];
                     if (initialRanks[p.r] > initialRanks[p.c]) {{
@@ -319,17 +316,17 @@ else:
     components.html(html_code, height=850, scrolling=True)
 
     st.divider()
-    with st.form("save_logic"):
+    with st.form("save"):
         respondent = st.text_input("응답자 성함")
-        code = st.text_area("결과 코드를 복사해서 붙여넣으세요")
-        if st.form_submit_button("최종 제출", type="primary"):
+        code = st.text_area("결과 코드 붙여넣기")
+        if st.form_submit_button("최종 제출"):
             if respondent and code:
                 try:
                     json.loads(code)
                     goal_clean = survey_data["goal"].replace(" ", "_")
                     secret_key = survey_data.get("secret_key", "public")
                     if not os.path.exists("survey_data"): os.makedirs("survey_data")
-                    file_path = f"survey_data/{secret_key}_{goal_clean}.csv"
+                    file_path = f"survey_data/{{secret_key}}_{{goal_clean}}.csv"
                     save_dict = {"Time": datetime.now().strftime("%Y-%m-%d %H:%M"), "Respondent": respondent, "Raw_Data": code}
                     df = pd.DataFrame([save_dict])
                     try: old_df = pd.read_csv(file_path)
