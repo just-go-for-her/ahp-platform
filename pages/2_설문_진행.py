@@ -17,6 +17,7 @@ os.makedirs(CONFIG_DIR, exist_ok=True)
 
 st.set_page_config(page_title="설문 진행", page_icon="📝", layout="wide")
 
+# 1. URL 데이터 처리
 query_params = st.query_params
 raw_id = query_params.get("id", None)
 if isinstance(raw_id, list): survey_id = raw_id[0] if raw_id else None
@@ -24,6 +25,7 @@ else: survey_id = raw_id
 
 survey_data = None
 
+# 응답자 모드 (URL에 id가 있는 경우)
 if survey_id:
     config_path = os.path.join(CONFIG_DIR, f"{survey_id}.json")
     if os.path.exists(config_path):
@@ -31,7 +33,8 @@ if survey_id:
             survey_data = json.load(f)
         is_respondent = True
     else:
-        st.error("유효하지 않은 링크입니다."); st.stop()
+        st.error("유효하지 않은 설문 링크입니다."); st.stop()
+# 연구자 모드 (세션 상태에서 데이터를 가져오는 경우)
 else:
     is_respondent = False
     survey_data = st.session_state.get("passed_structure", None)
@@ -39,7 +42,7 @@ else:
 if not is_respondent:
     st.title("📢 설문 배포 센터 (Private Mode)")
     if not survey_data:
-        st.warning("⚠️ [1번 페이지]에서 구조를 먼저 확정하세요."); st.stop()
+        st.warning("⚠️ [1번 페이지]에서 구조를 먼저 확정하거나 생성된 링크로 접속하세요."); st.stop()
 
     with st.container(border=True):
         st.subheader("🔐 보안 설정 (관리자용)")
@@ -54,7 +57,7 @@ if not is_respondent:
                 json.dump(full_structure, f, ensure_ascii=False, indent=2)
             final_url = f"{FULL_URL}?id={survey_id}"
             st.code(final_url)
-            st.success("링크가 생성되었습니다. 복사하여 사용하세요.")
+            st.success("링크가 생성되었습니다. 위 주소를 복사하여 공유하세요.")
 
 else:
     st.title(f"📝 {survey_data['goal']}")
@@ -80,19 +83,17 @@ else:
         .board-title {{ font-weight: bold; color: #495057; font-size: 0.9em; margin-bottom: 12px; display: flex; justify-content: space-between; }}
         .board-grid {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); gap: 10px; }}
         .board-item {{ background: white; padding: 12px; border-radius: 8px; text-align: center; font-size: 0.85em; border: 1px solid #dee2e6; }}
-        .rank-badge {{ display: inline-block; padding: 2px 8px; border-radius: 10px; font-weight: bold; margin-bottom: 4px; }}
         .card {{ background: #fff; padding: 25px; border-radius: 12px; text-align: center; margin-bottom: 20px; border: 1px solid #e9ecef; box-shadow: 0 2px 8px rgba(0,0,0,0.02); }}
         input[type=range] {{ width: 100%; margin: 25px 0; cursor: pointer; }}
         .btn {{ width: 100%; padding: 12px; background: #228be6; color: white; border: none; border-radius: 8px; font-size: 1em; font-weight: bold; cursor: pointer; }}
-        .btn-secondary {{ background: #adb5bd; margin-top: 5px; }}
+        .btn-secondary {{ background: #adb5bd; }}
         .modal {{ display: none; position: fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.7); justify-content:center; align-items:center; z-index:9999; }}
         .modal-box {{ background:white; padding:30px; border-radius:15px; width:85%; max-width:450px; text-align:center; }}
-        .highlight {{ color: #228be6; font-weight: bold; }}
     </style>
     </head>
     <body>
     <div class="container">
-        <h3 id="task-title" style="margin-top:0; color:#343a40;"></h3>
+        <h3 id="task-title" style="margin-top:0;"></h3>
 
         <div id="live-board" class="ranking-board" style="display:none;">
             <div class="board-title">
@@ -103,16 +104,16 @@ else:
         </div>
 
         <div id="step-ranking" class="step">
-            <p><b>1단계:</b> 각 항목의 <b>기대 순위</b>를 정해주세요.</p>
+            <p><b>1단계:</b> 각 항목의 <b>기대 순위</b>를 먼저 정해주세요.</p>
             <div id="ranking-list" style="margin-bottom:20px;"></div>
             <button class="btn" style="width:100%;" onclick="startCompare()">비교 시작하기</button>
         </div>
 
         <div id="step-compare" class="step">
             <div class="card">
-                <div style="display:flex; justify-content:space-between; font-weight:bold; font-size:1.2em; margin-bottom:20px;">
+                <div style="display:flex; justify-content:space-between; font-weight:bold; font-size:1.1em; margin-bottom:15px;">
                     <span id="item-a" style="color:#228be6;">A</span>
-                    <span style="color:#dee2e6;">VS</span>
+                    <span style="color:#adb5bd;">VS</span>
                     <span id="item-b" style="color:#fa5252;">B</span>
                 </div>
                 <div style="font-size:0.9em; color:#868e96; margin-bottom:10px;">
@@ -129,6 +130,7 @@ else:
 
         <div id="step-finish" class="step">
             <h2>🎉 모든 설문 완료!</h2>
+            <p>아래 코드를 복사해서 하단에 붙여넣으세요.</p>
             <textarea id="result-code" readonly style="width:100%; height:120px; padding:12px; border-radius:8px; border:1px solid #ced4da; background:#f8f9fa; font-family:monospace;"></textarea>
         </div>
     </div>
@@ -136,16 +138,13 @@ else:
     <div id="modal" class="modal">
         <div class="modal-box">
             <h3 style="color:#e03131; margin-top:0;">⚠️ 논리 불일치 감지</h3>
-            <p style="font-size:0.95em; color:#495057; line-height:1.6; text-align:left;">
-                현재 응답을 적용하면 일관성이 낮아지거나 설정한 순위와 상충합니다.
-            </p>
-            <div style="background:#f1f3f5; padding:15px; border-radius:8px; margin:15px 0; text-align:left;">
-                <div style="margin-bottom:8px;">🧠 <b>AI 권장 가중치:</b> <span id="rec-val" class="highlight"></span></div>
+            <p id="modal-desc" style="font-size:0.95em; color:#495057;"></p>
+            <div style="background:#f1f3f5; padding:15px; border-radius:8px; margin:15px 0;">
+                <div style="margin-bottom:8px;">🧠 <b>AI 권장:</b> <span id="rec-val" style="color:#228be6; font-weight:bold;"></span></div>
             </div>
             <div style="display:grid; gap:10px;">
-                <button class="btn" onclick="closeModal('resurvey')" style="background:#228be6;">📍 다시 설문 (슬라이더 조정)</button>
-                <button class="btn" onclick="closeModal('updaterank')" style="background:#868e96;">🔄 초기 기대 순위 변경 (현재 인정)</button>
-                <button class="btn" onclick="closeModal('back')" style="background:#adb5bd;">⬅️ 이전 질문으로 돌아가기</button>
+                <button class="btn" onclick="closeModal('resurvey')">다시 설문 (슬라이더 조정)</button>
+                <button class="btn" style="background:#868e96;" onclick="closeModal('updaterank')">순위 변경 인정 (현재 응답 기준)</button>
             </div>
         </div>
     </div>
@@ -154,7 +153,11 @@ else:
         const tasks = {js_tasks};
         let currentTaskIdx = 0, items = [], pairs = [], matrix = [], pairIdx = 0, initialRanks = [];
         let allAnswers = {{}};
-        let history = []; // 뒤로가기를 위한 가중치 기록용
+
+        function showStep(id) {{
+            document.querySelectorAll('.step').forEach(e => e.classList.remove('active'));
+            document.getElementById(id).classList.add('active');
+        }}
 
         function loadTask() {{
             if (currentTaskIdx >= tasks.length) {{ finishAll(); return; }}
@@ -164,30 +167,36 @@ else:
             let options = '<option value="" selected disabled>선택</option>';
             for(let i=1; i<=items.length; i++) options += `<option value="${{i}}">${{i}}위</option>`;
             items.forEach((item, idx) => {{
-                listDiv.innerHTML += `<div style="display:flex; justify-content:space-between; padding:12px; background:#f8f9fa; border-radius:8px; margin-bottom:8px; align-items:center; border:1px solid #eee;">
+                listDiv.innerHTML += `<div style="display:flex; justify-content:space-between; padding:12px; background:#f8f9fa; border-radius:8px; margin-bottom:8px; align-items:center;">
                     <span style="font-weight:bold;">${{item}}</span><select id="rank-${{idx}}" style="padding:6px;">${{options}}</select></div>`;
             }});
-            showStep('step-ranking'); document.getElementById('live-board').style.display = 'none';
+            showStep('step-ranking');
+            document.getElementById('live-board').style.display = 'none';
         }}
 
         function startCompare() {{
             initialRanks = [];
             for(let i=0; i<items.length; i++) {{
-                const v = document.getElementById('rank-'+idx=i).value;
+                const v = document.getElementById('rank-'+i).value;
                 if(!v) {{ alert("순위를 모두 정해주세요."); return; }}
                 initialRanks.push(parseInt(v));
             }}
             if(new Set(initialRanks).size !== initialRanks.length) {{ alert("중복 순위가 있습니다."); return; }}
+            
             const n = items.length; matrix = Array.from({{length: n}}, () => Array(n).fill(0));
             for(let i=0; i<n; i++) matrix[i][i] = 1;
+            
             pairs = [];
             for(let i=0; i<n; i++) {{ for(let j=i+1; j<n; j++) {{ pairs.push({{ r: i, c: j, a: items[i], b: items[j] }}); }} }}
-            pairIdx = 0; showStep('step-compare'); renderPair();
+            pairIdx = 0;
+            showStep('step-compare');
+            renderPair();
         }}
 
         function renderPair() {{
             const p = pairs[pairIdx];
-            document.getElementById('item-a').innerText = p.a; document.getElementById('item-b').innerText = p.b;
+            document.getElementById('item-a').innerText = p.a; 
+            document.getElementById('item-b').innerText = p.b;
             document.getElementById('rank-hint-a').innerText = `기대: ${{initialRanks[p.r]}}위`;
             document.getElementById('rank-hint-b').innerText = `기대: ${{initialRanks[p.c]}}위`;
             document.getElementById('slider').value = 0;
@@ -202,36 +211,43 @@ else:
             if(val == 0) disp.innerText = "동등함 (1:1)";
             else if(val < 0) disp.innerText = `${{p.a}} ${{Math.abs(val)+1}}배 중요`;
             else disp.innerText = `${{p.b}} ${{val+1}}배 중요`;
-            updateBoard(false);
+            updateBoard();
         }}
 
-        function updateBoard(finalCheck) {{
+        function updateBoard() {{
             const grid = document.getElementById('board-grid'); grid.innerHTML = "";
             const status = document.getElementById('logic-status');
-            if (pairIdx === 0 && !finalCheck) {{
-                status.innerText = "📍 기준점 설정 중..."; status.style.color = "#495057";
-                items.forEach((item, i) => {{ grid.innerHTML += `<div class="board-item" style="opacity: 0.5;"><b>${{item}}</b><br><small>기대: ${{initialRanks[i]}}위</small></div>`; }});
+            
+            if (pairIdx === 0) {{
+                status.innerText = "📍 기준점 설정 중...";
+                items.forEach((item, i) => {{
+                    grid.innerHTML += `<div class="board-item" style="opacity:0.5;">${{item}}<br><small>기대: ${{initialRanks[i]}}위</small></div>`;
+                }});
                 return;
             }}
+
             let weights = calculateWeights();
             let sortedIdx = weights.map((w, i) => i).sort((a, b) => weights[b] - weights[a]);
             let currentRanks = new Array(items.length);
             sortedIdx.forEach((idx, i) => currentRanks[idx] = i + 1);
+
             let mismatch = false;
             items.forEach((item, i) => {{
-                const match = currentRanks[i] === initialRanks[i]; if(!match) mismatch = true;
-                grid.innerHTML += `<div class="board-item" style="border: 1px solid ${{match?'#d3f9d8':'#ffc9c9'}}; background: ${{match?'white':'#fff5f5'}}">
-                    <div style="font-weight:bold;">${{item}}</div><div style="font-size:0.75em;">기대: ${{initialRanks[i]}}위 | <b>현재: ${{currentRanks[i]}}위</b></div></div>`;
+                const match = currentRanks[i] === initialRanks[i];
+                if(!match) mismatch = true;
+                grid.innerHTML += `<div class="board-item" style="border: 1px solid ${{match?'#d3f9d8':'#ffc9c9'}}">
+                    <b>${{item}}</b><br><small>현재: ${{currentRanks[i]}}위</small></div>`;
             }});
-            status.innerText = mismatch ? "⚠️ 순위 불일치 상태" : "✅ 순위 일치 상태";
-            status.style.color = mismatch ? "#e03131" : "#2f9e44";
+            status.innerText = mismatch ? "⚠️ 순위 변동 감지" : "✅ 순위 유지 중";
         }}
 
         function calculateWeights() {{
             const n = items.length; let tempMatrix = matrix.map(row => [...row]);
             const val = parseInt(document.getElementById('slider').value);
-            const p = pairs[pairIdx]; const w = val === 0 ? 1 : (val < 0 ? Math.abs(val)+1 : 1/(val+1));
+            const p = pairs[pairIdx]; 
+            const w = val === 0 ? 1 : (val < 0 ? Math.abs(val)+1 : 1/(val+1));
             tempMatrix[p.r][p.c] = w; tempMatrix[p.c][p.r] = 1/w;
+            
             for(let i=0; i<n; i++) {{ for(let j=0; j<n; j++) {{ if(tempMatrix[i][j] === 0) tempMatrix[i][j] = 1; }} }}
             let weights = tempMatrix.map(row => Math.pow(row.reduce((a, b) => a * b, 1), 1/n));
             let sum = weights.reduce((a, b) => a + b, 0);
@@ -239,30 +255,20 @@ else:
         }}
 
         function checkLogic() {{
-            if (pairIdx === 0) {{ saveAndNext(); return; }}
             const sliderVal = parseInt(document.getElementById('slider').value);
-            const p = pairs[pairIdx]; const rankA = initialRanks[p.r]; const rankB = initialRanks[p.c];
-            const isReverse = (rankA < rankB && sliderVal > 0) || (rankA > rankB && sliderVal < 0);
-            let estimates = [];
-            for(let k=0; k<items.length; k++) {{
-                if(k === p.r || k === p.c) continue;
-                if(matrix[p.r][k] !== 0 && matrix[k][p.c] !== 0) estimates.push(matrix[p.r][k] * matrix[k][p.c]);
-            }}
-            if (estimates.length > 0) {{
-                let geoMean = Math.exp(estimates.reduce((acc, v) => acc + Math.log(v), 0) / estimates.length);
-                const currentWeight = sliderVal === 0 ? 1 : (sliderVal < 0 ? Math.abs(sliderVal)+1 : 1/(sliderVal+1));
-                if (isReverse || (currentWeight > geoMean ? currentWeight/geoMean : geoMean/currentWeight) >= 2.0) {{
-                    showModal(geoMean); return;
-                }}
-            }} else if (isReverse) {{ showModal(1); return; }}
-            saveAndNext();
-        }}
-
-        function showModal(recW) {{
             const p = pairs[pairIdx];
-            const fmt = (w) => (w >= 1.1) ? `"${{p.a}}" ${{Math.round(w)}}배 우세` : (w <= 0.9) ? `"${{p.b}}" ${{Math.round(1/w)}}배 우세` : "동등함(1:1)";
-            document.getElementById('rec-val').innerText = fmt(recW);
-            document.getElementById('modal').style.display = 'flex';
+            if (pairIdx === 0) {{ saveAndNext(); return; }}
+
+            const rankA = initialRanks[p.r]; const rankB = initialRanks[p.c];
+            const isReverse = (rankA < rankB && sliderVal > 0) || (rankA > rankB && sliderVal < 0);
+            
+            if (isReverse) {{
+                document.getElementById('modal-desc').innerText = "현재 선택이 설정한 순위와 반대 방향입니다.";
+                document.getElementById('rec-val').innerText = rankA < rankB ? `"${{p.a}}" 우세` : `"${{p.b}}" 우세`;
+                document.getElementById('modal').style.display = 'flex';
+            }} else {{
+                saveAndNext();
+            }}
         }}
 
         function closeModal(action) {{
@@ -272,18 +278,12 @@ else:
                 let sortedIdx = weights.map((w, i) => i).sort((a, b) => weights[b] - weights[a]);
                 sortedIdx.forEach((idx, i) => initialRanks[idx] = i + 1);
                 saveAndNext();
-            }} else if(action === 'back') {{
-                goBack();
             }} else {{
                 document.getElementById('slider').value = 0; updateUI();
             }}
         }}
 
-        function goBack() {{
-            if (pairIdx > 0) {{
-                pairIdx--; renderPair();
-            }}
-        }}
+        function goBack() {{ if (pairIdx > 0) {{ pairIdx--; renderPair(); }} }}
 
         function saveAndNext() {{
             const val = parseInt(document.getElementById('slider').value);
@@ -301,10 +301,6 @@ else:
             document.getElementById('result-code').value = JSON.stringify(allAnswers);
         }}
 
-        function showStep(id) {{
-            document.querySelectorAll('.step').forEach(e => e.classList.remove('active'));
-            document.getElementById(id).classList.add('active');
-        }}
         loadTask();
     </script>
     </body>
@@ -324,11 +320,11 @@ else:
                     goal_clean = survey_data["goal"].replace(" ", "_")
                     secret_key = survey_data.get("secret_key", "public")
                     if not os.path.exists("survey_data"): os.makedirs("survey_data")
-                    file_path = f"survey_data/{secret_key}_{goal_clean}.csv"
-                    save_data = {"Time": datetime.now().strftime("%Y-%m-%d %H:%M"), "Respondent": respondent, "Raw_Data": code}
+                    file_path = f"survey_data/{{secret_key}}_{{goal_clean}}.csv"
+                    save_data = { "Time": datetime.now().strftime("%Y-%m-%d %H:%M"), "Respondent": respondent, "Raw_Data": code }
                     df = pd.DataFrame([save_data])
                     try: old_df = pd.read_csv(file_path)
                     except: old_df = pd.DataFrame()
                     pd.concat([old_df, df], ignore_index=True).to_csv(file_path, index=False)
-                    st.success("✅ 저장되었습니다!"); st.balloons()
+                    st.success("✅ 제출되었습니다!"); st.balloons()
                 except: st.error("코드가 올바르지 않습니다.")
