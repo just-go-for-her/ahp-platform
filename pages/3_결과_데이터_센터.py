@@ -24,14 +24,20 @@ def is_match(main_name, sub_task_name):
     """
     대항목 이름(main_name)이 소항목 그룹 이름(sub_task_name)에 포함되는지 유연하게 검사
     """
-    if main_name in sub_task_name: return True
-    if main_name.replace(" ", "") in sub_task_name.replace(" ", ""): return True
+    # 공백 제거 후 비교 (가장 확실함)
+    clean_main = main_name.replace(" ", "")
+    clean_sub = sub_task_name.replace(" ", "")
     
+    if clean_main in clean_sub: 
+        return True
+    
+    # 괄호 안의 내용 추출해서 비교
     match = re.search(r'\[(.*?)\]', sub_task_name)
     if match:
-        extracted = match.group(1)
-        if extracted.replace(" ", "") == main_name.replace(" ", ""):
+        extracted = match.group(1).replace(" ", "")
+        if extracted == clean_main:
             return True
+            
     return False
 
 # ==============================================================================
@@ -118,10 +124,15 @@ if selected_file:
         try:
             survey_dict = json.loads(row['Raw_Data'])
             tasks = {}
+            
+            # [핵심 수정] 파싱 로직 개선 (rfind 사용)
             for k, v in survey_dict.items():
                 if "]" in k:
-                    task_name = k.split("]")[0].replace("[", "")
-                    pair = k.split("]")[1].strip()
+                    # 마지막 ']'를 찾아서 그 앞까지를 태스크 이름으로 간주
+                    split_idx = k.rfind("]")
+                    task_name = k[1:split_idx] # 맨 앞 '[' 제거하고 추출
+                    pair = k[split_idx+1:].strip() # 뒤에 남은 ' A vs B' 추출
+                    
                     if task_name not in tasks: tasks[task_name] = {}
                     tasks[task_name][pair] = v
             
@@ -170,12 +181,14 @@ if selected_file:
 
     avg_weights = valid_df.mean()
     
+    # 구조 파싱
     tasks_unique = sorted(list(set([k.split("|")[0] for k in avg_weights.index])))
     main_task = tasks_unique[0] 
     sub_tasks = tasks_unique[1:]
     
     final_rows = []
     
+    # 메인 항목 찾기
     main_items_keys = [k for k in avg_weights.index if k.startswith(main_task)]
     main_items_data = []
     for k in main_items_keys:
@@ -187,6 +200,7 @@ if selected_file:
         m_name = m_item['name']
         m_weight = m_item['weight']
         
+        # 스마트 매칭
         matching_sub_task = None
         for st_name in sub_tasks:
             if is_match(m_name, st_name):
@@ -229,10 +243,8 @@ if selected_file:
 
     report_df = pd.DataFrame(final_rows)
     
-    # [수정됨] 순위 컬럼 초기화 (KeyError 방지)
+    # [오류 해결] 순위 컬럼 초기화 및 계산
     report_df['순위'] = np.nan 
-    
-    # 소항목이 존재하는 행들에 대해 종합 가중치 기준 순위 매기기
     rank_mask = report_df['소항목명'] != "-"
     if rank_mask.any():
         report_df.loc[rank_mask, '순위'] = report_df.loc[rank_mask, 'Raw_Global'].rank(ascending=False).astype(int)
@@ -243,25 +255,23 @@ if selected_file:
     st.subheader("🏆 최종 가중치 및 순위 리포트")
     
     display_cols = ["대항목명", "대항목 가중치", "소항목명", "소항목 가중치", "종합 가중치", "순위"]
-    display_df = report_df[display_cols].copy()
+    display_df = report_df.copy()
     
     def fmt(x): return f"{x:.4f}" if pd.notnull(x) and x != "" else ""
     
     display_df["대항목 가중치"] = display_df["대항목 가중치"].apply(fmt)
     display_df["소항목 가중치"] = display_df["소항목 가중치"].apply(fmt)
     display_df["종합 가중치"] = display_df["종합 가중치"].apply(fmt)
-    
-    # 순위 포맷팅 (NaN 처리 추가)
     display_df["순위"] = display_df["순위"].apply(lambda x: f"{int(x)}위" if pd.notnull(x) else "")
     
-    st.dataframe(display_df, use_container_width=True, hide_index=True)
+    st.dataframe(display_df[display_cols], use_container_width=True, hide_index=True)
     
     # --------------------------------------------------------------------------
     # 4. Excel 다운로드
     # --------------------------------------------------------------------------
     output = io.BytesIO()
     with pd.ExcelWriter(output, engine='openpyxl') as writer:
-        display_df.to_excel(writer, sheet_name='1_최종_분석_결과', index=False)
+        display_df[display_cols].to_excel(writer, sheet_name='1_최종_분석_결과', index=False)
         raw_df.to_excel(writer, sheet_name='2_전체_원본_데이터', index=False)
         if not invalid_rows.empty:
             invalid_rows[["Respondent", "Time", "CR_Details"]].to_excel(writer, sheet_name='3_제외된_데이터_오류목록', index=False)
