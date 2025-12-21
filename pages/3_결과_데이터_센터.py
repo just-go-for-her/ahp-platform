@@ -4,7 +4,6 @@ import numpy as np
 import json
 import io
 import os
-import re
 
 # ==============================================================================
 # [설정] 페이지 기본 설정
@@ -159,94 +158,105 @@ if selected_file:
 
     avg_weights = valid_df.mean()
     
-    # 구조 파싱 (개선된 로직)
+    # 구조 파싱
     tasks_unique = sorted(list(set([k.split("|")[0] for k in avg_weights.index])))
     main_task = tasks_unique[0] # [1. 메인...] 가정
     sub_tasks = tasks_unique[1:]
     
-    final_report = []
+    # [핵심] 리포트용 리스트 생성
+    final_rows = []
     
     # 메인 항목
-    main_items = [k for k in avg_weights.index if k.startswith(main_task)]
+    main_items_keys = [k for k in avg_weights.index if k.startswith(main_task)]
     
-    for m_key in main_items:
-        m_name = m_key.split("|")[1]
-        m_weight = avg_weights[m_key]
+    # 대항목을 가중치 순으로 정렬 (보기 좋게)
+    main_items_data = []
+    for k in main_items_keys:
+        main_items_data.append({"key": k, "name": k.split("|")[1], "weight": avg_weights[k]})
+    main_items_data.sort(key=lambda x: x['weight'], reverse=True)
+
+    # 전체 소항목 데이터를 미리 수집하여 순위 산정
+    all_sub_items = []
+    
+    for m_item in main_items_data:
+        m_name = m_item['name']
+        m_weight = m_item['weight']
         
-        # [1] 대항목 자체 행
-        final_report.append({
-            "대항목": m_name,
-            "대항목 가중치": m_weight,
-            "소항목": "-", # 구분용
-            "소항목 가중치": 0.0,
-            "종합 가중치": m_weight,
-            "순위": 0,
-            "is_main": True
-        })
-        
-        # [2] 소항목 찾기 (매칭 로직 강화: [단어] 포함 여부)
+        # 소항목 찾기 (매칭 로직 강화)
         matching_sub_task = None
         for st_name in sub_tasks:
-            # Task 이름에 "[m_name]" 형태가 있는지, 혹은 그냥 m_name이 있는지 확인
-            if f"[{m_name}]" in st_name or m_name in st_name:
+            if m_name in st_name: # 이름이 포함되어 있으면 매칭
                 matching_sub_task = st_name
                 break
         
         if matching_sub_task:
             sub_keys = [k for k in avg_weights.index if k.startswith(matching_sub_task)]
+            
+            # 소항목 임시 저장 (정렬용)
             temp_subs = []
             for s_key in sub_keys:
                 s_name = s_key.split("|")[1]
                 s_weight = avg_weights[s_key]
                 global_w = m_weight * s_weight
-                
                 temp_subs.append({
-                    "대항목": m_name,
-                    "대항목 가중치": m_weight, # 요청하신 대로 채워넣음
-                    "소항목": s_name,
-                    "소항목 가중치": s_weight,
-                    "종합 가중치": global_w,
-                    "순위": 0,
-                    "is_main": False
+                    "s_name": s_name, 
+                    "s_weight": s_weight, 
+                    "global_w": global_w
                 })
             
-            # 소항목끼리 정렬 (종합가중치 내림차순)
-            temp_subs.sort(key=lambda x: x['종합 가중치'], reverse=True)
-            final_report.extend(temp_subs)
+            # 소항목 가중치 순 정렬
+            temp_subs.sort(key=lambda x: x['global_w'], reverse=True)
+            
+            # 행 추가
+            for i, sub in enumerate(temp_subs):
+                all_sub_items.append(sub['global_w']) # 순위 산정을 위해 수집
+                
+                final_rows.append({
+                    "대항목명": m_name if i == 0 else "",      # 첫 줄만 표시
+                    "대항목 가중치": m_weight if i == 0 else None, # 첫 줄만 표시
+                    "소항목명": sub['s_name'],
+                    "소항목 가중치": sub['s_weight'],
+                    "종합 가중치": sub['global_w'],
+                    "SortKey": sub['global_w'] # 정렬 키
+                })
+        else:
+            # 소항목이 없는 경우 (대항목만 존재)
+            final_rows.append({
+                "대항목명": m_name,
+                "대항목 가중치": m_weight,
+                "소항목명": "-",
+                "소항목 가중치": None,
+                "종합 가중치": m_weight,
+                "SortKey": m_weight
+            })
 
-    report_df = pd.DataFrame(final_report)
+    # 전체 리스트 DF 변환
+    report_df = pd.DataFrame(final_rows)
     
-    # 소항목 전체 순위 매기기
-    sub_mask = report_df['is_main'] == False
-    if sub_mask.any():
-        report_df.loc[sub_mask, '순위'] = report_df.loc[sub_mask, '종합 가중치'].rank(ascending=False).astype(int)
+    # [순위 산정] 종합 가중치를 기준으로 전체 순위 매기기
+    # 소항목이 있는 행만 대상으로 순위 매김
+    report_df['순위'] = report_df['종합 가중치'].rank(ascending=False).astype(int)
     
     # --------------------------------------------------------------------------
-    # 3. 화면 출력 (요청하신 컬럼 순서 적용)
+    # 3. 화면 출력 (요청하신 레이아웃)
     # --------------------------------------------------------------------------
     st.subheader("🏆 최종 가중치 및 순위 리포트")
     
-    display_cols = ["대항목", "대항목 가중치", "소항목", "소항목 가중치", "종합 가중치", "순위"]
+    display_cols = ["대항목명", "대항목 가중치", "소항목명", "소항목 가중치", "종합 가중치", "순위"]
     display_df = report_df[display_cols].copy()
     
-    # 숫자 포맷팅
-    for c in ["대항목 가중치", "소항목 가중치", "종합 가중치"]:
-        display_df[c] = display_df[c].apply(lambda x: f"{x:.4f}" if x > 0 else "")
+    # 포맷팅 함수
+    def fmt(x): return f"{x:.4f}" if pd.notnull(x) and x != "" else ""
     
-    # 순위 포맷팅 (0은 빈칸 처리)
-    display_df['순위'] = display_df['순위'].apply(lambda x: f"{int(x)}위" if x > 0 else "")
-    
-    # 대항목 행 시각적 정리 (소항목 관련 비우기)
-    # (사용자 요청: "대항목 가중치"는 소항목 행에도 보이길 원하셨으므로 유지)
-    # 단, 대항목 "본인" 행의 소항목 가중치는 비움
-    mask_main = report_df['is_main'] == True
-    display_df.loc[mask_main, '소항목 가중치'] = ""
-    display_df.loc[mask_main, '순위'] = ""
+    display_df["대항목 가중치"] = display_df["대항목 가중치"].apply(fmt)
+    display_df["소항목 가중치"] = display_df["소항목 가중치"].apply(fmt)
+    display_df["종합 가중치"] = display_df["종합 가중치"].apply(fmt)
+    display_df["순위"] = display_df["순위"].apply(lambda x: f"{x}위")
     
     st.dataframe(display_df, use_container_width=True, hide_index=True)
     
     # --------------------------------------------------------------------------
-    # 4. Excel 다운로드 (openpyxl 사용)
+    # 4. Excel 다운로드
     # --------------------------------------------------------------------------
     output = io.BytesIO()
     with pd.ExcelWriter(output, engine='openpyxl') as writer:
