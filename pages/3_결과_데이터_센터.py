@@ -9,9 +9,9 @@ import os
 # [설정] 페이지 기본 설정
 # ==============================================================================
 st.set_page_config(page_title="결과 데이터 센터", page_icon="📊", layout="wide")
-st.title("🔐 AHP 결과 데이터 센터")
+st.title("📊 AHP 결과 데이터 센터")
 
-# 데이터 저장소 경로 (Page 2와 동일해야 함)
+# 데이터 저장소 경로
 DATA_FOLDER = "survey_data"
 if not os.path.exists(DATA_FOLDER):
     os.makedirs(DATA_FOLDER)
@@ -268,10 +268,11 @@ if selected_file:
     st.dataframe(display_df[final_cols], use_container_width=True, hide_index=True)
     
     # --------------------------------------------------------------------------
-    # 5. Excel 다운로드
+    # 5. Excel 다운로드 (엔진 변경: openpyxl)
     # --------------------------------------------------------------------------
     output = io.BytesIO()
-    with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
+    # [수정됨] xlsxwriter 대신 openpyxl 사용 (requirements.txt 호환)
+    with pd.ExcelWriter(output, engine='openpyxl') as writer:
         display_df[final_cols].to_excel(writer, sheet_name='1_최종_분석_결과', index=False)
         raw_df.to_excel(writer, sheet_name='2_전체_원본_데이터', index=False)
         if not invalid_rows.empty:
