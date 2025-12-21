@@ -4,6 +4,7 @@ import numpy as np
 import json
 import io
 import os
+import re
 
 # ==============================================================================
 # [설정] 페이지 기본 설정
@@ -17,13 +18,33 @@ if not os.path.exists(DATA_FOLDER):
     os.makedirs(DATA_FOLDER)
 
 # ==============================================================================
+# [함수] 스마트 매칭 (대항목-소항목 연결)
+# ==============================================================================
+def is_match(main_name, sub_task_name):
+    """
+    대항목 이름(main_name)이 소항목 그룹 이름(sub_task_name)에 포함되는지
+    유연하게 검사합니다. (공백 무시, 괄호 안 추출 등)
+    """
+    # 1. 기본 포함 검사
+    if main_name in sub_task_name: return True
+    
+    # 2. 공백 제거 후 포함 검사 ("가 격" vs "가격")
+    if main_name.replace(" ", "") in sub_task_name.replace(" ", ""): return True
+    
+    # 3. 대괄호 [] 안의 핵심 키워드 추출 후 비교 (예: "📂 2. [가격] 세부" -> "가격")
+    match = re.search(r'\[(.*?)\]', sub_task_name)
+    if match:
+        extracted = match.group(1)
+        # 추출된 단어와 대항목 이름이 같은지 (공백 무시)
+        if extracted.replace(" ", "") == main_name.replace(" ", ""):
+            return True
+            
+    return False
+
+# ==============================================================================
 # [함수] AHP 핵심 엔진
 # ==============================================================================
 def calculate_ahp_metrics(comparisons):
-    """
-    입력: {"A vs B": 3, ...}
-    출력: (항목 리스트, 가중치 배열, CR 값)
-    """
     items = set()
     for pair in comparisons.keys():
         if " vs " in pair:
@@ -103,7 +124,6 @@ if selected_file:
     for idx, row in raw_df.iterrows():
         try:
             survey_dict = json.loads(row['Raw_Data'])
-            
             tasks = {}
             for k, v in survey_dict.items():
                 if "]" in k:
@@ -132,14 +152,13 @@ if selected_file:
             })
             
             if is_valid: valid_weights.append(resp_weights)
-                
         except Exception: continue
         progress_bar.progress((idx + 1) / len(raw_df))
     
     progress_bar.empty()
     
     # --------------------------------------------------------------------------
-    # 2. 결과 집계 (AIP)
+    # 2. 결과 집계
     # --------------------------------------------------------------------------
     valid_df = pd.DataFrame(valid_weights)
     invalid_rows = pd.DataFrame(processed_data)
@@ -153,46 +172,40 @@ if selected_file:
     c3.metric("❌ 제외된 데이터 (CR>0.1)", f"{len(invalid_rows)}명")
 
     if len(valid_weights) == 0:
-        st.error("유효한 데이터가 없어 분석할 수 없습니다.")
+        st.error("유효한 데이터가 없습니다.")
         st.stop()
 
     avg_weights = valid_df.mean()
     
-    # 구조 파싱
+    # 구조 파싱 (스마트 매칭 적용)
     tasks_unique = sorted(list(set([k.split("|")[0] for k in avg_weights.index])))
-    main_task = tasks_unique[0] # [1. 메인...] 가정
+    main_task = tasks_unique[0] # 첫번째 태스크를 대항목 그룹으로 가정
     sub_tasks = tasks_unique[1:]
     
-    # [핵심] 리포트용 리스트 생성
     final_rows = []
     
-    # 메인 항목
+    # 메인 항목 찾기
     main_items_keys = [k for k in avg_weights.index if k.startswith(main_task)]
-    
-    # 대항목을 가중치 순으로 정렬 (보기 좋게)
     main_items_data = []
     for k in main_items_keys:
-        main_items_data.append({"key": k, "name": k.split("|")[1], "weight": avg_weights[k]})
+        main_items_data.append({"name": k.split("|")[1], "weight": avg_weights[k]})
+    
+    # 대항목 가중치 순 정렬
     main_items_data.sort(key=lambda x: x['weight'], reverse=True)
 
-    # 전체 소항목 데이터를 미리 수집하여 순위 산정
-    all_sub_items = []
-    
     for m_item in main_items_data:
         m_name = m_item['name']
         m_weight = m_item['weight']
         
-        # 소항목 찾기 (매칭 로직 강화)
+        # [스마트 매칭] 대항목 이름과 소항목 태스크 이름 비교
         matching_sub_task = None
         for st_name in sub_tasks:
-            if m_name in st_name: # 이름이 포함되어 있으면 매칭
+            if is_match(m_name, st_name):
                 matching_sub_task = st_name
                 break
         
         if matching_sub_task:
             sub_keys = [k for k in avg_weights.index if k.startswith(matching_sub_task)]
-            
-            # 소항목 임시 저장 (정렬용)
             temp_subs = []
             for s_key in sub_keys:
                 s_name = s_key.split("|")[1]
@@ -207,60 +220,59 @@ if selected_file:
             # 소항목 가중치 순 정렬
             temp_subs.sort(key=lambda x: x['global_w'], reverse=True)
             
-            # 행 추가
             for i, sub in enumerate(temp_subs):
-                all_sub_items.append(sub['global_w']) # 순위 산정을 위해 수집
-                
                 final_rows.append({
-                    "대항목명": m_name if i == 0 else "",      # 첫 줄만 표시
-                    "대항목 가중치": m_weight if i == 0 else None, # 첫 줄만 표시
+                    "대항목명": m_name if i == 0 else "",      
+                    "대항목 가중치": m_weight if i == 0 else None, 
                     "소항목명": sub['s_name'],
                     "소항목 가중치": sub['s_weight'],
                     "종합 가중치": sub['global_w'],
-                    "SortKey": sub['global_w'] # 정렬 키
+                    "Raw_Global": sub['global_w'] # 순위 계산용
                 })
         else:
-            # 소항목이 없는 경우 (대항목만 존재)
+            # 매칭되는 소항목이 없는 경우 (대항목만 표시)
             final_rows.append({
                 "대항목명": m_name,
                 "대항목 가중치": m_weight,
                 "소항목명": "-",
                 "소항목 가중치": None,
                 "종합 가중치": m_weight,
-                "SortKey": m_weight
+                "Raw_Global": m_weight
             })
 
-    # 전체 리스트 DF 변환
     report_df = pd.DataFrame(final_rows)
     
-    # [순위 산정] 종합 가중치를 기준으로 전체 순위 매기기
-    # 소항목이 있는 행만 대상으로 순위 매김
-    report_df['순위'] = report_df['종합 가중치'].rank(ascending=False).astype(int)
+    # [순위] 소항목이 존재하는 행들에 대해 종합 가중치 기준 순위 매기기
+    # 단, 소항목이 없는 대항목만 있는 경우도 포함해서 전체 순위를 매길지? -> 보통 소항목 단위로 매김
+    # 여기서는 '소항목명'이 '-'가 아닌 것들끼리 순위 경쟁
+    
+    rank_mask = report_df['소항목명'] != "-"
+    if rank_mask.any():
+        report_df.loc[rank_mask, '순위'] = report_df.loc[rank_mask, 'Raw_Global'].rank(ascending=False).astype(int)
     
     # --------------------------------------------------------------------------
-    # 3. 화면 출력 (요청하신 레이아웃)
+    # 3. 화면 출력
     # --------------------------------------------------------------------------
     st.subheader("🏆 최종 가중치 및 순위 리포트")
     
     display_cols = ["대항목명", "대항목 가중치", "소항목명", "소항목 가중치", "종합 가중치", "순위"]
-    display_df = report_df[display_cols].copy()
+    display_df = report_df.copy()
     
-    # 포맷팅 함수
     def fmt(x): return f"{x:.4f}" if pd.notnull(x) and x != "" else ""
     
     display_df["대항목 가중치"] = display_df["대항목 가중치"].apply(fmt)
     display_df["소항목 가중치"] = display_df["소항목 가중치"].apply(fmt)
     display_df["종합 가중치"] = display_df["종합 가중치"].apply(fmt)
-    display_df["순위"] = display_df["순위"].apply(lambda x: f"{x}위")
+    display_df["순위"] = display_df["순위"].apply(lambda x: f"{int(x)}위" if pd.notnull(x) else "")
     
-    st.dataframe(display_df, use_container_width=True, hide_index=True)
+    st.dataframe(display_df[display_cols], use_container_width=True, hide_index=True)
     
     # --------------------------------------------------------------------------
     # 4. Excel 다운로드
     # --------------------------------------------------------------------------
     output = io.BytesIO()
     with pd.ExcelWriter(output, engine='openpyxl') as writer:
-        display_df.to_excel(writer, sheet_name='1_최종_분석_결과', index=False)
+        display_df[display_cols].to_excel(writer, sheet_name='1_최종_분석_결과', index=False)
         raw_df.to_excel(writer, sheet_name='2_전체_원본_데이터', index=False)
         if not invalid_rows.empty:
             invalid_rows[["Respondent", "Time", "CR_Details"]].to_excel(writer, sheet_name='3_제외된_데이터_오류목록', index=False)
