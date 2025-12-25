@@ -24,7 +24,7 @@ def load_from_google_cloud(user_key):
     구글 시트에 저장된 전체 데이터 중 현재 사용자의 비밀번호(user_key)와 일치하는 것만 가져옵니다.
     """
     # 사용자님의 구글 Apps Script URL을 여기에 입력하세요. (doGet 함수가 설정되어 있어야 함)
-    WEBAPP_URL = "https://script.google.com/macros/s/AKfycbzgvXMFc5zUQ1wEl7ltTJ2qBKmlw1QKKtJhqHHw9kIWKQpOfr1CyFFMFo2w_CJRL3YffA/exec"
+    WEBAPP_URL = "https://script.google.com/macros/s/AKfycbw-c1Cf71eSMFaouFhN_YziqOl05KBqZzt4-qOXFwkbFBUQrS4ADMozoIswYdAsQiIIOQ/exec"
     try:
         # 비밀번호를 파라미터로 보내서 해당 데이터만 응답받음
         response = requests.get(WEBAPP_URL, params={"user_key": user_key}, timeout=10)
