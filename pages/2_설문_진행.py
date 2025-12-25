@@ -16,7 +16,7 @@ FULL_URL = "https://ahp-platform-bbee45epwqjjy2zfpccz7p.streamlit.app/%EC%84%A4%
 # [추가] 구글 시트 전송 함수 (사용자님의 기존 로직에 영향을 주지 않는 독립 함수)
 def send_to_google_cloud(user_key, goal_name, respondent, raw_data):
     # 사용자님의 구글 Apps Script URL을 여기에 입력하세요.
-    WEBAPP_URL = "https://script.google.com/macros/s/AKfycbzNGdJ4l_RUdL58K_-GMQLaAYF3RA0xrJTkOVeku2RyNI7-y7yVogTQTNMArbJQe16dWg/exec" 
+    WEBAPP_URL = "https://script.google.com/macros/s/AKfycbw-c1Cf71eSMFaouFhN_YziqOl05KBqZzt4-qOXFwkbFBUQrS4ADMozoIswYdAsQiIIOQ/exec" 
     payload = {
         "user_key": user_key,
         "project_name": goal_name,
