@@ -187,7 +187,15 @@ if my_files:
     selected_file = st.selectbox("📂 로컬 프로젝트 선택", my_files)
     if selected_file:
         file_path = os.path.join(DATA_FOLDER, selected_file)
-        raw_df = pd.read_csv(file_path)
+        # 기존 코드
+# raw_df = pd.read_csv(file_path)
+
+# 수정 코드 (한글 인코딩 문제를 해결하기 위해 encoding='utf-8-sig' 추가)
+try:
+    raw_df = pd.read_csv(file_path, encoding='utf-8-sig')
+except UnicodeDecodeError:
+    # 만약 위 방법으로 안 될 경우 한국어 전용 인코딩 시도
+    raw_df = pd.read_csv(file_path, encoding='cp949')
         st.markdown(f"### 📄 로컬 프로젝트: **{selected_file.replace(user_key+'_', '').replace('.csv', '')}**")
 elif 'cloud_data' in st.session_state:
     raw_df = st.session_state['cloud_data']
